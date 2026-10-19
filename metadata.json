@@ -1,0 +1,6 @@
+{
+  "name": "NetSec 3D Simulator",
+  "description": "An interactive 3D networking and cybersecurity simulator with realistic server room cabling, Cisco IOS-style CLI terminal, log triage with threat map, and vulnerability patching missions.",
+  "permissions": [],
+  "capabilities": []
+}
