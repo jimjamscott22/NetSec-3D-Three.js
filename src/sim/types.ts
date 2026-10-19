@@ -130,6 +130,15 @@ export interface Link {
   locked?: boolean;
 }
 
+export interface StepGuidance {
+  targetDevice?: string;
+  actionType: 'cable' | 'terminal' | 'report' | 'editor';
+  summary: string;
+  steps: string[];
+  suggestedCommands?: string[];
+  explanation: string;
+}
+
 export interface ObjectiveDef {
   id: string;
   type: 'ping' | 'config' | 'report' | 'vuln_patched' | 'exploit_test' | 'no_ping' | 'ssh';
@@ -146,6 +155,7 @@ export interface ObjectiveDef {
   field?: string;
   vuln?: string;
   expect?: 'vulnerable' | 'patched';
+  guidance?: StepGuidance;
 }
 
 export interface ObjectiveState {
@@ -159,6 +169,7 @@ export interface ObjectiveState {
   failReason: FailReason;
   hint: string;
   detail: string;
+  guidance?: StepGuidance;
 }
 
 export interface LogLine {

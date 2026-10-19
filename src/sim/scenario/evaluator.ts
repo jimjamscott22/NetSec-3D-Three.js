@@ -8,6 +8,7 @@ import {
   HttpOutcome,
 } from '../types';
 import { matchesAcceptPatterns } from '../web/patch_matcher';
+import { getGuidanceForObjective } from './guidance';
 
 export interface HttpLogEntry {
   srcId: string;
@@ -155,6 +156,7 @@ export function evaluateObjectives(
       failReason: reason,
       hint: hintText,
       detail,
+      guidance: def.guidance || getGuidanceForObjective(def.id) || undefined,
     });
   }
 
@@ -165,18 +167,30 @@ export function evaluateObjectives(
 }
 
 function resolvePropertyPath(obj: any, path: string[]): any {
+  if (path.length === 0) return obj;
+
   let curr = obj;
-  for (const seg of path) {
+  for (let i = 0; i < path.length; i++) {
+    const seg = path[i];
     if (curr === null || curr === undefined) return undefined;
+
+    // Handle device interfaces mapping cleanly
+    if (seg === 'interfaces' && typeof curr.getInterface === 'function') {
+      const dev = curr;
+      if (i + 1 < path.length) {
+        const ifName = path[i + 1];
+        i++; // skip interface name segment since we resolve it via dev.getInterface
+        curr = dev.getInterface(ifName);
+        continue;
+      }
+    }
+
     if (curr instanceof Map) {
-      curr = curr.get(seg);
-    } else if (typeof curr.getInterface === 'function' && seg === 'interfaces') {
-      // Specialized handling for device interfaces
-      curr = {
-        get: (ifName: string) => curr.getInterface(ifName),
-      };
+      const val = curr.get(seg);
+      curr = val !== undefined ? val : curr.get(Number(seg));
     } else if (typeof curr.get === 'function') {
-      curr = curr.get(seg);
+      const val = curr.get(seg);
+      curr = val !== undefined ? val : curr.get(Number(seg));
     } else {
       curr = curr[seg];
     }
@@ -187,7 +201,9 @@ function resolvePropertyPath(obj: any, path: string[]): any {
 function matchesObject(actual: any, expected: Record<string, any>): boolean {
   if (typeof actual !== 'object' || actual === null) return false;
   for (const [k, v] of Object.entries(expected)) {
-    if (actual[k] !== v) return false;
+    const altKey = k === 'dot1q_vlan' ? 'dot1qVlan' : k === 'dot1qVlan' ? 'dot1q_vlan' : k;
+    const actualVal = actual[k] !== undefined ? actual[k] : actual[altKey];
+    if (actualVal !== v) return false;
   }
   return true;
 }

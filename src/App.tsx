@@ -8,6 +8,7 @@ import { MissionHud } from './ui/MissionHud';
 import { LogViewerThreatMap } from './ui/LogViewerThreatMap';
 import { CodePatchEditor } from './ui/CodePatchEditor';
 import { MissionSelectModal } from './ui/MissionSelectModal';
+import { ContextualHintModal } from './ui/ContextualHintModal';
 import { sounds } from './utils/audio';
 import {
   Shield,
@@ -19,6 +20,7 @@ import {
   VolumeX,
   RotateCcw,
   Sparkles,
+  Lightbulb,
 } from 'lucide-react';
 
 export const App: React.FC = () => {
@@ -42,6 +44,7 @@ export const App: React.FC = () => {
   const [isCodeEditorOpen, setIsCodeEditorOpen] = useState(false);
   const [codeEditorInitialFile, setCodeEditorInitialFile] = useState('/var/www/login.php');
   const [isMissionSelectOpen, setIsMissionSelectOpen] = useState(false);
+  const [isHintModalOpen, setIsHintModalOpen] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
 
   // Get current scenario definition
@@ -57,6 +60,7 @@ export const App: React.FC = () => {
       setSelectedPort(null);
       setIsLogViewerOpen(false);
       setIsCodeEditorOpen(false);
+      setIsHintModalOpen(false);
 
       sim.loadScenario(scen);
       setObjectives(sim.objectiveStates());
@@ -96,14 +100,15 @@ export const App: React.FC = () => {
     };
   }, [sim, loadScenario, currentScenarioId]);
 
-  // Keyboard shortcut listener ('H' for hint, 'Tab' for console toggle)
+  // Keyboard shortcut listener ('H' for contextual step guidance)
   useEffect(() => {
     const handleGlobalKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
         return;
       }
       if (e.key === 'h' || e.key === 'H') {
-        // Triggered by HUD
+        e.preventDefault();
+        setIsHintModalOpen((prev) => !prev);
       }
     };
     window.addEventListener('keydown', handleGlobalKey);
@@ -193,6 +198,23 @@ export const App: React.FC = () => {
             </button>
           )}
 
+          {/* Contextual Step Guidance Button */}
+          <button
+            onClick={() => {
+              sounds.playKeyClick();
+              setIsHintModalOpen((prev) => !prev);
+            }}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition ${
+              isHintModalOpen
+                ? 'bg-amber-500 text-slate-950 border-amber-400 font-bold'
+                : 'bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border-amber-500/40'
+            }`}
+            title="Contextual Step-by-Step Guidance (Press 'H')"
+          >
+            <Lightbulb className="w-3.5 h-3.5 text-amber-400" />
+            <span>Guidance (H)</span>
+          </button>
+
           {/* Sound Toggle */}
           <button
             onClick={() => {
@@ -230,6 +252,7 @@ export const App: React.FC = () => {
           objectives={objectives}
           onOpenReport={() => setIsLogViewerOpen(true)}
           onOpenCodeEditor={() => setIsCodeEditorOpen(true)}
+          onOpenHint={() => setIsHintModalOpen(true)}
           onSelectMission={loadScenario}
           onRestartMission={() => loadScenario(currentScenario.id)}
           allScenarios={ALL_SCENARIOS}
@@ -249,6 +272,17 @@ export const App: React.FC = () => {
             }}
           />
         )}
+
+        {/* Contextual Step-by-Step Guidance Modal (Triggered by 'H' or Hint button) */}
+        <ContextualHintModal
+          scenario={currentScenario}
+          objectives={objectives}
+          isOpen={isHintModalOpen}
+          onClose={() => setIsHintModalOpen(false)}
+          onOpenTerminal={(devId) => setActiveTerminalDevice(devId)}
+          onOpenReport={() => setIsLogViewerOpen(true)}
+          onOpenCodeEditor={() => setIsCodeEditorOpen(true)}
+        />
 
         {/* Mission 2: Log Viewer & Threat Map Modal */}
         {isLogViewerOpen && (

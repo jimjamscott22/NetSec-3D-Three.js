@@ -17,6 +17,7 @@ import {
   FileText,
   Code2,
   Terminal,
+  Lightbulb,
 } from 'lucide-react';
 
 interface MissionHudProps {
@@ -25,6 +26,7 @@ interface MissionHudProps {
   objectives: ObjectiveState[];
   onOpenReport?: () => void;
   onOpenCodeEditor?: () => void;
+  onOpenHint?: () => void;
   onSelectMission: (scenarioId: string) => void;
   onRestartMission: () => void;
   allScenarios: ScenarioDef[];
@@ -36,6 +38,7 @@ export const MissionHud: React.FC<MissionHudProps> = ({
   objectives,
   onOpenReport,
   onOpenCodeEditor,
+  onOpenHint,
   onSelectMission,
   onRestartMission,
   allScenarios,
@@ -49,6 +52,10 @@ export const MissionHud: React.FC<MissionHudProps> = ({
 
   const handleRevealHint = () => {
     sounds.playKeyClick();
+    if (onOpenHint) {
+      onOpenHint();
+      return;
+    }
     // Find first failing objective that has a hint
     const failingWithHint = objectives.find((o) => !o.passed && !o.locked && o.hint);
     if (failingWithHint) {
@@ -203,7 +210,18 @@ export const MissionHud: React.FC<MissionHudProps> = ({
             <span>Restart</span>
           </button>
 
-          <div className="text-slate-500">Live Evaluation</div>
+          {onOpenHint && (
+            <button
+              onClick={() => {
+                sounds.playKeyClick();
+                onOpenHint();
+              }}
+              className="text-amber-400/90 hover:text-amber-300 flex items-center gap-1 font-medium transition"
+            >
+              <Lightbulb className="w-3 h-3 text-amber-400" />
+              <span>Step Guidance [H]</span>
+            </button>
+          )}
         </div>
       </div>
 
