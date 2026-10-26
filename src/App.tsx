@@ -26,7 +26,7 @@ import {
 export const App: React.FC = () => {
   const sim = useMemo(() => new NetworkSim(), []);
 
-  const [currentScenarioId, setCurrentScenarioId] = useState<string>('m1_vlan_ping');
+  const [currentScenarioId, setCurrentScenarioId] = useState<string>('m0_orientation');
   const [objectives, setObjectives] = useState<ObjectiveState[]>([]);
   const [completedMissionIds, setCompletedMissionIds] = useState<string[]>(() => {
     try {
@@ -65,8 +65,11 @@ export const App: React.FC = () => {
       sim.loadScenario(scen);
       setObjectives(sim.objectiveStates());
 
-      // Auto open terminal for first device or PC-A in M1
-      if (scen.id === 'm1_vlan_ping') {
+      // Auto open the relevant console so each mission starts with an actionable next step.
+      if (scen.id === 'm0_orientation') {
+        setActiveTerminalDevice('PC-A');
+        setIsHintModalOpen(true);
+      } else if (scen.id === 'm1_vlan_ping') {
         setActiveTerminalDevice('R1');
       } else if (scen.id === 'm2_log_triage') {
         setActiveTerminalDevice('SOC-PC');

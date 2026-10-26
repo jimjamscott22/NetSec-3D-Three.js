@@ -1,5 +1,63 @@
 import { ScenarioDef, FailReason } from '../types';
 
+export const SCENARIO_TUTORIAL: ScenarioDef = {
+  schema_version: 1,
+  id: 'm0_orientation',
+  sequence: 0,
+  title: 'Orientation: First Connection',
+  briefing:
+    'Welcome to the server room. This short tutorial teaches the core loop: use camera presets to find equipment, click a device to open its console, run a command, and read the objective panel for your next step. Start in the PC-A console, then ping PC-B.',
+  devices: [
+    {
+      id: 'PC-A',
+      type: 'host',
+      model: 'pc',
+      hostname: 'PC-A',
+      desk: 'desk_1',
+      config: { ip: '192.168.1.10', mask: '255.255.255.0', gateway: '192.168.1.1' },
+    },
+    {
+      id: 'PC-B',
+      type: 'host',
+      model: 'pc',
+      hostname: 'PC-B',
+      desk: 'desk_2',
+      config: { ip: '192.168.1.20', mask: '255.255.255.0', gateway: '192.168.1.1' },
+    },
+  ],
+  links: [
+    { a: 'PC-A:Eth0', b: 'PC-B:Eth0', locked: true },
+  ],
+  spare_cables: 0,
+  objectives: [
+    {
+      id: 'tutorial_ping',
+      type: 'ping',
+      from: 'PC-A',
+      to_ip: '192.168.1.20',
+      to_device: 'PC-B',
+      description: 'From PC-A, ping PC-B at 192.168.1.20',
+      guidance: {
+        targetDevice: 'PC-A',
+        actionType: 'terminal',
+        summary: 'Open the PC-A terminal and run one ping.',
+        steps: [
+          'Use the Desk 1 camera angle to locate PC-A, or use the already-open PC-A console.',
+          'Click inside the terminal input at the bottom of the console.',
+          'Type ping 192.168.1.20 and press Enter.',
+          'A successful reply marks the tutorial complete. The objective panel on the left tracks your progress.',
+        ],
+        suggestedCommands: ['ping 192.168.1.20'],
+        explanation: 'The 3D room is the workspace, while the terminal and objective panel are your primary tools. You do not need to interact with every rack object—only the highlighted device or port required by the active objective.',
+      },
+    },
+  ],
+  hints: [
+    { reason: FailReason.HOST_UNREACHABLE, text: 'This tutorial is already wired. Open the PC-A console and run ping 192.168.1.20.' },
+  ],
+  debrief: 'You have learned the core interaction loop: choose a camera angle, identify the named device, open its console, perform the requested action, and use the objective panel to confirm progress. Mission 1 adds cabling and switch/router configuration.',
+};
+
 export const SCENARIO_M1: ScenarioDef = {
   schema_version: 1,
   id: 'm1_vlan_ping',
@@ -496,4 +554,4 @@ function handle_search() {
     'Security patches deployed successfully! Parameterized queries (prepared statements) neutralize SQL injection by separating code from data, completely neutralizing quotes and SQL syntax hijacking. htmlspecialchars() neutralizes Reflected XSS by converting sensitive characters (<, >, &, \', ") to HTML entities before output.',
 };
 
-export const ALL_SCENARIOS: ScenarioDef[] = [SCENARIO_M1, SCENARIO_M2, SCENARIO_M3];
+export const ALL_SCENARIOS: ScenarioDef[] = [SCENARIO_TUTORIAL, SCENARIO_M1, SCENARIO_M2, SCENARIO_M3];

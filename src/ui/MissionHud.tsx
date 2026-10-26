@@ -226,7 +226,7 @@ export const MissionHud: React.FC<MissionHudProps> = ({
       </div>
 
       {/* Debrief Modal Card */}
-      {(showDebrief || allPassed) && (
+      {showDebrief && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
           <div className="max-w-xl w-full rounded-2xl bg-slate-900 border border-emerald-500/50 shadow-2xl p-6 text-slate-200">
             <div className="flex items-center gap-3 mb-4">
