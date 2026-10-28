@@ -48,6 +48,12 @@ interface PortMarker {
   ledMesh?: THREE.Mesh;
 }
 
+interface EquipmentLabelTarget {
+  id: string;
+  object: THREE.Object3D;
+  offset: THREE.Vector3;
+}
+
 export interface CableColorOption {
   id: string;
   label: string;
@@ -441,6 +447,10 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
   // UI Dock state
   const [isDockCollapsed, setIsDockCollapsed] = useState(false);
   const [activeDockTab, setActiveDockTab] = useState<'cables' | 'chassis' | 'catalog' | 'cameras'>('chassis');
+  const [areEquipmentLabelsVisible, setAreEquipmentLabelsVisible] = useState(false);
+  const equipmentLabelsVisibleRef = useRef(false);
+  const equipmentLabelTargetsRef = useRef<Map<string, EquipmentLabelTarget>>(new Map());
+  const equipmentLabelElementsRef = useRef<Map<string, HTMLDivElement>>(new Map());
 
   // Three.js instances refs
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -1382,6 +1392,22 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
     portMarkersRef.current = markers;
     unitGroupsRef.current = unitMap;
     clickableMeshesRef.current = clickables;
+    equipmentLabelTargetsRef.current = new Map([
+      ...Array.from(unitMap.entries()).map(([id, data]) => [
+        id,
+        { id, object: data.group, offset: new THREE.Vector3(0, 0, 0.42) } as EquipmentLabelTarget,
+      ] as const),
+      [
+        pcAId,
+        { id: pcAId, object: desk1.screen, offset: new THREE.Vector3(0, 0.3, 0) } as EquipmentLabelTarget,
+      ] as const,
+      ...(sim.devices.has('PC-B')
+        ? [[
+            'PC-B',
+            { id: 'PC-B', object: desk2.screen, offset: new THREE.Vector3(0, 0.3, 0) } as EquipmentLabelTarget,
+          ] as const]
+        : []),
+    ]);
 
     updateCablesAndLeds();
 
@@ -1677,6 +1703,64 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
         }
       }
 
+      const labelElements = equipmentLabelElementsRef.current;
+      if (equipmentLabelsVisibleRef.current) {
+        const viewportWidth = container.clientWidth;
+        const viewportHeight = container.clientHeight;
+        const occupiedRects: Array<{ left: number; top: number; right: number; bottom: number }> = [];
+        const cameraDirection = new THREE.Vector3();
+        camera.getWorldDirection(cameraDirection);
+
+        for (const target of equipmentLabelTargetsRef.current.values()) {
+          const element = labelElements.get(target.id);
+          if (!element) continue;
+
+          const worldPosition = target.object.localToWorld(target.offset.clone());
+          const towardTarget = worldPosition.clone().sub(camera.position);
+          const projected = worldPosition.clone().project(camera);
+          const isInFront = cameraDirection.dot(towardTarget) > 0;
+          const isOnScreen = projected.z > -1 && projected.z < 1 && Math.abs(projected.x) < 0.94 && Math.abs(projected.y) < 0.9;
+
+          if (!isInFront || !isOnScreen) {
+            element.style.opacity = '0';
+            continue;
+          }
+
+          const anchorX = (projected.x * 0.5 + 0.5) * viewportWidth;
+          const anchorY = (-projected.y * 0.5 + 0.5) * viewportHeight;
+          const labelWidth = Math.min(152, Math.max(104, viewportWidth * 0.3));
+          const labelHeight = 30;
+          const left = Math.min(viewportWidth - labelWidth - 8, Math.max(8, anchorX + 18));
+          const top = Math.min(viewportHeight - labelHeight - 8, Math.max(56, anchorY - labelHeight / 2));
+          const rect = { left, top, right: left + labelWidth, bottom: top + labelHeight };
+          const overlaps = occupiedRects.some(
+            (placed) => rect.left < placed.right + 6 && rect.right + 6 > placed.left && rect.top < placed.bottom + 4 && rect.bottom + 4 > placed.top
+          );
+
+          if (overlaps) {
+            element.style.opacity = '0';
+            continue;
+          }
+
+          occupiedRects.push(rect);
+          element.style.width = `${labelWidth}px`;
+          element.style.opacity = '1';
+          element.style.transform = `translate3d(${left}px, ${top}px, 0)`;
+
+          const leader = element.querySelector<HTMLElement>('[data-equipment-leader]');
+          if (leader) {
+            const deltaX = anchorX - left;
+            const deltaY = anchorY - (top + labelHeight / 2);
+            leader.style.width = `${Math.hypot(deltaX, deltaY)}px`;
+            leader.style.transform = `rotate(${Math.atan2(deltaY, deltaX)}rad)`;
+          }
+        }
+      } else {
+        for (const element of labelElements.values()) {
+          element.style.opacity = '0';
+        }
+      }
+
       renderer.render(scene, camera);
     };
 
@@ -1796,13 +1880,54 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
     return ALL_RACK_UNITS.find((u) => u.id === selectedUnitId) || ALL_RACK_UNITS[2];
   }, [selectedUnitId]);
 
+  const equipmentLabels = useMemo(() => {
+    const workstationId = sim.devices.has('SOC-PC') ? 'SOC-PC' : sim.devices.has('PC-1') ? 'PC-1' : 'PC-A';
+    return [
+      ...ALL_RACK_UNITS.map((unit) => ({ id: unit.id, name: unit.name })),
+      { id: workstationId, name: `Workstation ${workstationId}` },
+      ...(sim.devices.has('PC-B') ? [{ id: 'PC-B', name: 'Sales Workstation PC-B' }] : []),
+    ];
+  }, [sim]);
+
+  const toggleEquipmentLabels = () => {
+    sounds.playKeyClick();
+    setAreEquipmentLabelsVisible((current) => {
+      const next = !current;
+      equipmentLabelsVisibleRef.current = next;
+      return next;
+    });
+  };
+
   return (
     <div className="relative w-full h-full select-none overflow-hidden bg-slate-950 font-sans">
       {/* 3D WebGL Canvas */}
       <div ref={mountRef} className="w-full h-full" />
 
+      <div className="pointer-events-none absolute inset-0 z-[8] overflow-hidden" aria-hidden={!areEquipmentLabelsVisible}>
+        {equipmentLabels.map((label) => (
+          <div
+            key={label.id}
+            ref={(element) => {
+              if (element) equipmentLabelElementsRef.current.set(label.id, element);
+              else equipmentLabelElementsRef.current.delete(label.id);
+            }}
+            className="absolute left-0 top-0 h-[30px] opacity-0 transition-opacity duration-150 will-change-transform"
+          >
+            <span
+              data-equipment-leader
+              className="absolute left-0 top-1/2 h-px origin-left bg-cyan-300 shadow-[0_0_5px_rgba(103,232,249,0.95)] after:absolute after:-right-0.5 after:-top-[3px] after:h-2 after:w-2 after:rotate-45 after:border-r after:border-t after:border-cyan-200"
+            />
+            <span className="relative z-10 flex h-[30px] items-center gap-1.5 rounded-md border border-cyan-300/70 bg-slate-950/95 px-2 text-[10px] font-semibold text-cyan-50 shadow-[0_4px_16px_rgba(0,0,0,0.5)] backdrop-blur-sm">
+              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-300 shadow-[0_0_6px_rgba(103,232,249,0.9)]" />
+              <span className="font-mono text-cyan-300">{label.id}</span>
+              <span className="truncate text-slate-300">{label.name}</span>
+            </span>
+          </div>
+        ))}
+      </div>
+
       {/* Top Left Camera Presets Bar */}
-      <div className="absolute top-4 left-4 z-10 flex items-center gap-1.5 p-1.5 rounded-xl bg-slate-900/90 border border-slate-800 shadow-xl text-xs font-medium text-slate-300">
+      <div className="absolute top-2 left-2 right-2 z-10 flex max-w-max flex-wrap items-center gap-1 rounded-xl border border-slate-800 bg-slate-900/90 p-1.5 text-xs font-medium text-slate-300 shadow-xl sm:top-4 sm:left-4 sm:right-auto">
         <span className="px-2 py-1 text-slate-400 flex items-center gap-1">
           <Camera className="w-3.5 h-3.5 text-cyan-400" /> Angles:
         </span>
@@ -1839,12 +1964,43 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
         {sim.devices.has('PC-B') && (
           <button
             onClick={() => setCameraPreset('desk_2')}
-            className="px-2.5 py-1 rounded-lg hover:bg-slate-800 hover:text-amber-400 transition"
+            className="min-h-11 px-2.5 py-1 rounded-lg hover:bg-slate-800 hover:text-amber-400 transition sm:min-h-0"
           >
             Desk 2
           </button>
         )}
+        <button
+          type="button"
+          onClick={toggleEquipmentLabels}
+          aria-pressed={areEquipmentLabelsVisible}
+          aria-label={`${areEquipmentLabelsVisible ? 'Hide' : 'Show'} equipment labels`}
+          className={`hidden min-h-11 items-center gap-1.5 rounded-lg border px-2.5 py-1 font-semibold transition sm:flex sm:min-h-0 ${
+            areEquipmentLabelsVisible
+              ? 'border-cyan-300/70 bg-cyan-400/20 text-cyan-200'
+              : 'border-slate-700 bg-slate-950/50 text-slate-300 hover:border-cyan-600 hover:text-cyan-300'
+          }`}
+        >
+          <Info className="h-3.5 w-3.5" />
+          <span>Labels</span>
+          <span className={`h-1.5 w-1.5 rounded-full ${areEquipmentLabelsVisible ? 'bg-cyan-300' : 'bg-slate-600'}`} />
+        </button>
       </div>
+
+      <button
+        type="button"
+        onClick={toggleEquipmentLabels}
+        aria-pressed={areEquipmentLabelsVisible}
+        aria-label={`${areEquipmentLabelsVisible ? 'Hide' : 'Show'} equipment labels`}
+        className={`absolute right-2 top-[270px] z-20 flex min-h-11 items-center gap-2 rounded-xl border px-3 text-xs font-semibold shadow-xl backdrop-blur-md transition sm:hidden ${
+          areEquipmentLabelsVisible
+            ? 'border-cyan-300/80 bg-cyan-950/95 text-cyan-100'
+            : 'border-slate-600 bg-slate-900/95 text-slate-200'
+        }`}
+      >
+        <Info className="h-4 w-4" />
+        <span>Equipment labels</span>
+        <span className={`h-2 w-2 rounded-full ${areEquipmentLabelsVisible ? 'bg-cyan-300' : 'bg-slate-500'}`} />
+      </button>
 
       {/* Top Right Cabling & Active Color Badge */}
       <div className="absolute top-4 right-4 z-10 flex items-center gap-3 p-2 rounded-xl bg-slate-900/90 border border-slate-800 shadow-xl text-xs">
