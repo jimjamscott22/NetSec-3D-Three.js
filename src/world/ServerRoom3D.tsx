@@ -31,6 +31,10 @@ import {
 
 interface ServerRoom3DProps {
   sim: NetworkSim;
+  /** Rebuilds port sockets when the mission changes (different devices). */
+  scenarioId: string;
+  /** Changes whenever sim state changes (objective re-evaluation), so cables/LEDs redraw. */
+  simRevision?: unknown;
   onOpenTerminal: (deviceId: string) => void;
   selectedPort: string | null;
   onSelectPort: (port: string | null) => void;
@@ -39,7 +43,7 @@ interface ServerRoom3DProps {
 }
 
 interface PortMarker {
-  portId: string; // e.g. "R1:Gi0/0"
+  portId: string; // canonical, e.g. "R1:GigabitEthernet0/0"
   deviceId: string;
   shortName: string;
   position: THREE.Vector3;
@@ -412,14 +416,25 @@ export const ALL_RACK_UNITS: RackUnitSpec[] = [
   },
 ];
 
+/** Key for a cable. Uses '|' because device ids such as "PC-B" contain '-'. */
+const linkKeyOf = (a: string, b: string) => `${a}|${b}`;
+
+/** True if the port id names this interface, e.g. portIs('S1:GigabitEthernet0/1', 'GigabitEthernet0/1'). */
+const portIs = (portId: string, ifName: string) => portId.endsWith(`:${ifName}`);
+
 export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
   sim,
+  scenarioId,
+  simRevision,
   onOpenTerminal,
   selectedPort,
   onSelectPort,
   onOpenThreatMap,
 }) => {
   const mountRef = useRef<HTMLDivElement>(null);
+  // Latest render's state and handlers, read by the long-lived Three.js loop and
+  // event listeners so the scene doesn't have to be rebuilt on every state change.
+  const liveRef = useRef<any>(null);
 
   // Interaction state
   const [hoveredPort, setHoveredPort] = useState<string | null>(null);
@@ -516,13 +531,14 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
       };
     } else if (preset === 'desk_1') {
       cameraTargetRef.current = {
-        pos: new THREE.Vector3(1.2, 1.4, 2.0),
-        lookAt: new THREE.Vector3(1.6, 1.0, 1.2),
+        // Frame the whole desk incl. the PC tower and its NIC socket.
+        pos: new THREE.Vector3(0.8, 1.9, 3.3),
+        lookAt: new THREE.Vector3(1.9, 0.2, 1.2),
       };
     } else if (preset === 'desk_2') {
       cameraTargetRef.current = {
-        pos: new THREE.Vector3(1.2, 1.4, -0.8),
-        lookAt: new THREE.Vector3(1.6, 1.0, -1.6),
+        pos: new THREE.Vector3(0.8, 1.9, 0.9),
+        lookAt: new THREE.Vector3(1.9, 0.2, -1.2),
       };
     } else if (preset === 'soc') {
       cameraTargetRef.current = {
@@ -623,15 +639,15 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
       midPoint.y -= Math.min(0.85, dist * customCableTension);
 
       const curve = new THREE.CatmullRomCurve3([pA, midPoint, pB]);
-      const linkKey = `${link.a}-${link.b}`;
-      const revKey = `${link.b}-${link.a}`;
+      const linkKey = linkKeyOf(link.a, link.b);
+      const revKey = linkKeyOf(link.b, link.a);
       const isSelectedCable = selectedCableKey === linkKey || selectedCableKey === revKey;
 
       // Determine cable color: check custom color, then default role
       let cableHex = customCableColors[linkKey] || customCableColors[revKey];
 
       if (!cableHex) {
-        if (link.a.includes('Gi0/1') || link.b.includes('Gi0/1')) {
+        if (portIs(link.a, 'GigabitEthernet0/1') || portIs(link.b, 'GigabitEthernet0/1')) {
           cableHex = 0x06b6d4; // aqua for trunk
         } else if (link.a.includes('PC-B') || link.b.includes('PC-B')) {
           cableHex = 0xf59e0b; // amber for PC-B
@@ -711,14 +727,14 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
 
   useEffect(() => {
     updateCablesAndLeds();
-  }, [sim.links, customCableColors, customCableTension, isSignalPulseActive, selectedCableKey, updateCablesAndLeds]);
+  }, [sim.links, simRevision, customCableColors, customCableTension, isSignalPulseActive, selectedCableKey, updateCablesAndLeds]);
 
   // Recolor all cables to a selected palette
   const handleRecolorAllCables = (hex: number) => {
     sounds.playKeyClick();
     const updated: Record<string, number> = {};
     for (const link of sim.links) {
-      updated[`${link.a}-${link.b}`] = hex;
+      updated[linkKeyOf(link.a, link.b)] = hex;
     }
     setCustomCableColors(updated);
     showToast('Applied color to all Cat6 network cables in the room.');
@@ -729,12 +745,13 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
     sounds.playSuccessBeep();
     const updated: Record<string, number> = {};
     for (const link of sim.links) {
-      const key = `${link.a}-${link.b}`;
-      if (link.a.includes('Gi0/1') || link.b.includes('Gi0/1')) {
+      const key = linkKeyOf(link.a, link.b);
+      const either = (ifName: string) => portIs(link.a, ifName) || portIs(link.b, ifName);
+      if (either('GigabitEthernet0/1')) {
         updated[key] = 0x06b6d4; // Aqua for 802.1Q Trunk
-      } else if (link.a.includes('PC-B') || link.b.includes('PC-B') || link.a.includes('Fa0/2') || link.b.includes('Fa0/2')) {
+      } else if (link.a.includes('PC-B') || link.b.includes('PC-B') || either('FastEthernet0/2')) {
         updated[key] = 0xf59e0b; // Amber for Sales VLAN 20
-      } else if (link.a.includes('PC-A') || link.b.includes('PC-A') || link.a.includes('Fa0/1') || link.b.includes('Fa0/1')) {
+      } else if (link.a.includes('PC-A') || link.b.includes('PC-A') || either('FastEthernet0/1')) {
         updated[key] = 0x2563eb; // Blue for Accounting VLAN 10
       } else if (link.a.includes('WEB') || link.b.includes('WEB')) {
         updated[key] = 0x10b981; // Emerald for Production Web Server
@@ -773,8 +790,8 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
 
     // Camera
     const camera = new THREE.PerspectiveCamera(46, width / height, 0.1, 100);
-    camera.position.set(0, 3.6, 5.5);
-    camera.lookAt(0, 1.2, 0);
+    camera.position.copy(cameraTargetRef.current.pos);
+    camera.lookAt(cameraTargetRef.current.lookAt);
     cameraRef.current = camera;
 
     // WebGL Renderer
@@ -1409,7 +1426,7 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
         : []),
     ]);
 
-    updateCablesAndLeds();
+    liveRef.current.updateCablesAndLeds();
 
     // Raycaster for mouse interaction
     const raycaster = new THREE.Raycaster();
@@ -1476,6 +1493,8 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
     };
 
     const handleClick = (event: MouseEvent) => {
+      // Ignore the click that ends an orbit drag.
+      if (dragDistance > 6) return;
       const rect = container.getBoundingClientRect();
       mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
       mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
@@ -1489,7 +1508,7 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
         const hitMesh = portHits[0].object as THREE.Mesh;
         const found = markers.find((m) => m.mesh === hitMesh);
         if (found) {
-          handlePortClick(found);
+          liveRef.current.handlePortClick(found);
           return;
         }
       }
@@ -1517,20 +1536,29 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
         const found = clickableMeshesRef.current.find((c) => c.mesh === hitMesh);
         if (found) {
           if (found.type === 'drive') {
-            toggleDriveEject(found.meta.unitId, found.meta.driveIdx);
+            liveRef.current.toggleDriveEject(found.meta.unitId, found.meta.driveIdx);
             return;
           }
 
           if (found.type === 'powerBtn') {
-            toggleChassisPower(found.meta.unitId);
+            liveRef.current.toggleChassisPower(found.meta.unitId);
             return;
+          }
+
+          // Holding a cable and clicking a PC/server: plug into its only NIC.
+          if (liveRef.current.selectedPort && found.type === 'device') {
+            const nics = markers.filter((m) => m.deviceId === found.id);
+            if (nics.length === 1) {
+              liveRef.current.handlePortClick(nics[0]);
+              return;
+            }
           }
 
           sounds.playKeyClick();
           setSelectedUnitId(found.id);
 
           if (found.type === 'device' && sim.devices.has(found.id)) {
-            onOpenTerminal(found.id);
+            liveRef.current.onOpenTerminal(found.id);
           }
           return;
         }
@@ -1538,9 +1566,9 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
 
       // Check Wall Monitor click
       const socHits = raycaster.intersectObject(socScreen);
-      if (socHits.length > 0 && onOpenThreatMap) {
+      if (socHits.length > 0 && liveRef.current.onOpenThreatMap) {
         sounds.playKeyClick();
-        onOpenThreatMap();
+        liveRef.current.onOpenThreatMap();
         return;
       }
     };
@@ -1552,10 +1580,12 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
     let isDragging = false;
     let prevMouseX = 0;
     let prevMouseY = 0;
+    let dragDistance = 0;
 
     const handleMouseDown = (e: MouseEvent) => {
       if (e.button === 0) {
         isDragging = true;
+        dragDistance = 0;
         prevMouseX = e.clientX;
         prevMouseY = e.clientY;
       }
@@ -1569,6 +1599,7 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
       if (!isDragging) return;
       const deltaX = e.clientX - prevMouseX;
       const deltaY = e.clientY - prevMouseY;
+      dragDistance += Math.abs(deltaX) + Math.abs(deltaY);
       prevMouseX = e.clientX;
       prevMouseY = e.clientY;
 
@@ -1617,7 +1648,7 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
       }
 
       // Signal photon pulses travelling along network cables
-      if (isSignalPulseActive) {
+      if (liveRef.current.isSignalPulseActive) {
         for (const pulse of pulseSpheresRef.current) {
           pulse.progress = (pulse.progress + delta * pulse.speed) % 1.0;
           const pos = pulse.curve.getPointAt(pulse.progress);
@@ -1627,10 +1658,10 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
 
       // Chassis Slide Kinematics & Advanced Mechanics (Fans, Drives, Lid, KVM, Power, Exploded Layers)
       for (const [unitId, data] of unitMap.entries()) {
-        const isSlid = slidOutUnitIds.includes(unitId);
-        const isPowerOff = powerOffUnits.includes(unitId);
-        const isLidOff = lidOpenUnits.includes(unitId);
-        const isSelectedChassis = selectedUnitId === unitId;
+        const isSlid = liveRef.current.slidOutUnitIds.includes(unitId);
+        const isPowerOff = liveRef.current.powerOffUnits.includes(unitId);
+        const isLidOff = liveRef.current.lidOpenUnits.includes(unitId);
+        const isSelectedChassis = liveRef.current.selectedUnitId === unitId;
 
         data.targetZ = isSlid ? data.zBase + 0.58 : data.zBase;
 
@@ -1640,7 +1671,7 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
         // 2. Exploded layer separation
         if (data.subLayers && isSelectedChassis) {
           for (const layer of data.subLayers) {
-            const targetY = layer.baseY + explodedSeparation * layer.explodeMult * 0.18;
+            const targetY = layer.baseY + liveRef.current.explodedSeparation * layer.explodeMult * 0.18;
             layer.mesh.position.y = THREE.MathUtils.damp(layer.mesh.position.y, targetY, 8, delta);
           }
         }
@@ -1665,7 +1696,7 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
         // 5. Spin internal cooling blower fans
         if (data.fans.length > 0) {
           if (!isPowerOff) {
-            const baseSpinSpeed = isTurboFan ? 58 : isSlid ? 28 : 14;
+            const baseSpinSpeed = liveRef.current.isTurboFan ? 58 : isSlid ? 28 : 14;
             for (const fan of data.fans) {
               fan.rotation.z += delta * baseSpinSpeed;
             }
@@ -1673,7 +1704,7 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
         }
 
         // 6. Drive Caddies Ejection Kinematics
-        const unitEjected = ejectedDrives[unitId] || [];
+        const unitEjected = liveRef.current.ejectedDrives[unitId] || [];
         for (const d of data.drives) {
           const isDriveEjected = unitEjected.includes(d.driveIdx);
           const targetDriveZ = isDriveEjected ? d.baseZ + 0.14 : d.baseZ;
@@ -1698,7 +1729,7 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
 
         // 8. KVM Screen Fold Up / Down Hinge Kinematics
         if (data.kvmScreenGroup) {
-          const targetAngle = isSlid && isKvmFoldedUp ? -Math.PI * 0.42 : 0;
+          const targetAngle = isSlid && liveRef.current.isKvmFoldedUp ? -Math.PI * 0.42 : 0;
           data.kvmScreenGroup.rotation.x = THREE.MathUtils.damp(data.kvmScreenGroup.rotation.x, targetAngle, 8, delta);
         }
       }
@@ -1792,21 +1823,7 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
       }
       renderer.dispose();
     };
-  }, [
-    sim,
-    onOpenTerminal,
-    onOpenThreatMap,
-    updateCablesAndLeds,
-    slidOutUnitIds,
-    ejectedDrives,
-    lidOpenUnits,
-    powerOffUnits,
-    isTurboFan,
-    isKvmFoldedUp,
-    explodedSeparation,
-    selectedUnitId,
-    isSignalPulseActive,
-  ]);
+  }, [sim, scenarioId]);
 
   // Handle clicking a port for cabling interaction
   const handlePortClick = (marker: PortMarker) => {
@@ -1821,6 +1838,13 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
     const [devId, ifName] = marker.portId.split(':');
     const dev = sim.devices.get(devId);
     const iface = dev?.getInterface(ifName);
+
+    // Holding a cable and clicking an occupied port: refuse instead of unplugging it.
+    if (iface?.peer && selectedPort && selectedPort !== marker.portId) {
+      sounds.playErrorBeep();
+      showToast(`⚠️ Port ${marker.portId} is already in use. Pick a free port (dark LED).`);
+      return;
+    }
 
     // If port already has a cable connected, clicking it unplugs it!
     if (iface?.peer) {
@@ -1858,7 +1882,7 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
       if (res.ok) {
         sounds.playCableSnap();
         const activeColorHex = CABLE_COLORS.find((c) => c.css === activeCableColor)?.hex || 0x2563eb;
-        const linkKey = `${selectedPort}-${marker.portId}`;
+        const linkKey = linkKeyOf(selectedPort, marker.portId);
         setCustomCableColors((prev) => ({
           ...prev,
           [linkKey]: activeColorHex,
@@ -1876,6 +1900,25 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
     }
   };
 
+  liveRef.current = {
+    slidOutUnitIds,
+    ejectedDrives,
+    lidOpenUnits,
+    powerOffUnits,
+    isTurboFan,
+    isKvmFoldedUp,
+    explodedSeparation,
+    selectedUnitId,
+    isSignalPulseActive,
+    selectedPort,
+    handlePortClick,
+    toggleDriveEject,
+    toggleChassisPower,
+    onOpenTerminal,
+    onOpenThreatMap,
+    updateCablesAndLeds,
+  };
+
   const selectedUnitSpec = useMemo(() => {
     return ALL_RACK_UNITS.find((u) => u.id === selectedUnitId) || ALL_RACK_UNITS[2];
   }, [selectedUnitId]);
@@ -1887,7 +1930,7 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
       { id: workstationId, name: `Workstation ${workstationId}` },
       ...(sim.devices.has('PC-B') ? [{ id: 'PC-B', name: 'Sales Workstation PC-B' }] : []),
     ];
-  }, [sim]);
+  }, [sim, scenarioId]);
 
   const toggleEquipmentLabels = () => {
     sounds.playKeyClick();
@@ -2444,13 +2487,16 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
                       </button>
                       <button
                         onClick={() => {
-                          const [pA] = selectedCableKey.split('-');
+                          const [pA] = selectedCableKey.split('|');
                           const res = sim.disconnectLink(pA);
                           if (res.ok) {
                             sounds.playCableSnap();
                             setSelectedCableKey(null);
                             updateCablesAndLeds();
                             showToast(`Unplugged cable ${selectedCableKey}`);
+                          } else {
+                            sounds.playErrorBeep();
+                            showToast(`⚠️ ${res.reason || 'Cannot unplug cable'}`);
                           }
                         }}
                         className="px-2 py-0.5 rounded bg-red-950 hover:bg-red-900 text-red-300 border border-red-800 text-[11px]"
@@ -2686,7 +2732,7 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
 
       {/* Interactive Toast Notifications */}
       {toastMessage && (
-        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-30 px-4 py-2 rounded-xl bg-slate-900/95 border border-cyan-500/50 text-xs text-cyan-200 shadow-2xl animate-fade-in flex items-center gap-2 max-w-lg text-center">
+        <div className="absolute top-32 left-1/2 -translate-x-1/2 z-30 px-4 py-2 rounded-xl bg-slate-900/95 border border-cyan-500/50 text-xs text-cyan-200 shadow-2xl animate-fade-in flex items-center gap-2 max-w-lg text-center">
           <span>{toastMessage}</span>
         </div>
       )}

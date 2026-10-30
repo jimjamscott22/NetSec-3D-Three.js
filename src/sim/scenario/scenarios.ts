@@ -36,6 +36,7 @@ export const SCENARIO_TUTORIAL: ScenarioDef = {
       from: 'PC-A',
       to_ip: '192.168.1.20',
       to_device: 'PC-B',
+      require_run: true,
       description: 'From PC-A, ping PC-B at 192.168.1.20',
       guidance: {
         targetDevice: 'PC-A',
@@ -444,9 +445,9 @@ function handle_search() {
               lastLine: 4,
             },
             accept: [
-              `echo "<div class='results'>Results for: "\\.htmlspecialchars\\(\\$q,ENT_QUOTES,['"]UTF-8['"]\\)\\."</div>";`,
-              `echo "<div class='results'>Results for: "\\.htmlspecialchars\\(\\$q\\)\\."</div>";`,
-              `\\$safe=htmlspecialchars\\(\\$q\\);echo "<div class='results'>Results for: "\\.\\$safe\\."</div>";`,
+              `echo ?"<div class='results'>Results for: "\\.htmlspecialchars\\(\\$q,ENT_QUOTES,['"]UTF-8['"]\\)\\."</div>";`,
+              `echo ?"<div class='results'>Results for: "\\.htmlspecialchars\\(\\$q\\)\\."</div>";`,
+              `\\$safe=htmlspecialchars\\(\\$q\\);echo ?"<div class='results'>Results for: "\\.\\$safe\\."</div>";`,
             ],
             hint: 'Sanitize output using htmlspecialchars: echo "<div class=\'results\'>Results for: " . htmlspecialchars($q, ENT_QUOTES, \'UTF-8\') . "</div>";',
             exploit: {

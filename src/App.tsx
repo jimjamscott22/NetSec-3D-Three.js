@@ -24,9 +24,14 @@ import {
 } from 'lucide-react';
 
 export const App: React.FC = () => {
-  const sim = useMemo(() => new NetworkSim(), []);
+  // Load the first mission immediately so the 3D room's first build sees its devices.
+  const sim = useMemo(() => {
+    const s = new NetworkSim();
+    s.loadScenario(ALL_SCENARIOS[0]);
+    return s;
+  }, []);
 
-  const [currentScenarioId, setCurrentScenarioId] = useState<string>('m0_orientation');
+  const [currentScenarioId, setCurrentScenarioId] = useState<string>(ALL_SCENARIOS[0].id);
   const [objectives, setObjectives] = useState<ObjectiveState[]>([]);
   const [completedMissionIds, setCompletedMissionIds] = useState<string[]>(() => {
     try {
@@ -80,10 +85,9 @@ export const App: React.FC = () => {
     [sim]
   );
 
-  // Initial mount load
+  // Initial mount: wire sim callbacks first, then load the starting mission.
+  // Runs once; later loads go through loadScenario() directly.
   useEffect(() => {
-    loadScenario(currentScenarioId);
-
     sim.onObjectiveUpdated = (newObjectives) => {
       setObjectives([...newObjectives]);
     };
@@ -101,7 +105,13 @@ export const App: React.FC = () => {
         return prev;
       });
     };
-  }, [sim, loadScenario, currentScenarioId]);
+
+    loadScenario(currentScenarioId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sim]);
+
+  const handleOpenTerminal = useCallback((devId: string) => setActiveTerminalDevice(devId), []);
+  const handleOpenThreatMap = useCallback(() => setIsLogViewerOpen(true), []);
 
   // Keyboard shortcut listener ('H' for contextual step guidance)
   useEffect(() => {
@@ -237,10 +247,12 @@ export const App: React.FC = () => {
       <main className="relative flex-1 w-full h-full overflow-hidden">
         <ServerRoom3D
           sim={sim}
-          onOpenTerminal={(devId) => setActiveTerminalDevice(devId)}
+          scenarioId={currentScenarioId}
+          simRevision={objectives}
+          onOpenTerminal={handleOpenTerminal}
           selectedPort={selectedPort}
           onSelectPort={setSelectedPort}
-          onOpenThreatMap={() => setIsLogViewerOpen(true)}
+          onOpenThreatMap={handleOpenThreatMap}
           onOpenCodeEditor={(devAndPath) => {
             const parts = devAndPath.split(':');
             if (parts[1]) setCodeEditorInitialFile(parts[1]);

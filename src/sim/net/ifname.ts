@@ -62,3 +62,15 @@ export function getSubinterfaceTag(name: string): number | null {
   }
   return null;
 }
+
+/**
+ * Normalize a "DEVICE:Interface" port id so short and long interface names
+ * ("PC-B:Eth0" vs "PC-B:Ethernet0") refer to the same port.
+ */
+export function normalizePortId(portId: string): string {
+  const idx = portId.indexOf(':');
+  if (idx === -1) return portId;
+  const devId = portId.slice(0, idx);
+  const ifName = portId.slice(idx + 1);
+  return `${devId}:${normalizeInterfaceName(ifName)}`;
+}

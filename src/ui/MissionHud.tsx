@@ -72,7 +72,7 @@ export const MissionHud: React.FC<MissionHudProps> = ({
   return (
     <>
       {/* Top Center Mission HUD Bar */}
-      <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center max-w-xl w-[92%] sm:w-auto">
+      <div className="absolute top-16 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center max-w-xl w-[92%] sm:w-auto">
         <div className="flex items-center gap-3 px-4 py-2 rounded-2xl bg-slate-900/90 backdrop-blur-xl border border-slate-700/80 shadow-2xl">
           <div className="flex items-center gap-2">
             <span className="px-2 py-0.5 rounded-md bg-cyan-950 text-cyan-400 font-mono text-xs font-bold border border-cyan-800/80">

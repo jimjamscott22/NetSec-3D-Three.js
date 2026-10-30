@@ -148,6 +148,8 @@ export interface ObjectiveDef {
   to_ip?: string;
   to_device?: string;
   via?: string;
+  /** ping: also require the player to have run this ping from a terminal. */
+  require_run?: boolean;
   expect_reason?: FailReason;
   device?: string;
   path?: string | string[];

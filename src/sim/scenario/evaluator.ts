@@ -9,6 +9,7 @@ import {
 } from '../types';
 import { matchesAcceptPatterns } from '../web/patch_matcher';
 import { getGuidanceForObjective } from './guidance';
+import { normalizePortId } from '../net/ifname';
 
 export interface HttpLogEntry {
   srcId: string;
@@ -24,7 +25,8 @@ export function evaluateObjectives(
   pingResolver: (srcId: string, dstIp: string) => PingResult,
   reportStates: Map<string, ReportFieldState>,
   httpLogs: HttpLogEntry[],
-  hints: Array<{ reason: FailReason; text: string }> = []
+  hints: Array<{ reason: FailReason; text: string }> = [],
+  playerPings: Array<{ srcId: string; dstIp: string; success: boolean }> = []
 ): { states: ObjectiveState[]; allCompleted: boolean; hasFailed: boolean } {
   const states: ObjectiveState[] = [];
 
@@ -33,20 +35,6 @@ export function evaluateObjectives(
     let failed = false;
     let reason = FailReason.NONE;
     let detail = '';
-
-    // Check order prerequisites
-    let locked = false;
-    if (def.order && def.order > 1) {
-      for (const otherDef of definitions) {
-        if (otherDef.order && otherDef.order < def.order) {
-          const otherState = states.find((s) => s.id === otherDef.id);
-          if (!otherState || !otherState.passed) {
-            locked = true;
-            break;
-          }
-        }
-      }
-    }
 
     if (def.type === 'ping' && def.from && def.to_ip) {
       const pingRes = pingResolver(def.from, def.to_ip);
@@ -67,6 +55,13 @@ export function evaluateObjectives(
             detail = `Reached, but did not route through ${def.via}`;
           }
         }
+        if (ok && def.require_run) {
+          const ran = playerPings.some((p) => p.srcId === def.from && p.dstIp === def.to_ip && p.success);
+          if (!ran) {
+            ok = false;
+            detail = `Run the ping from ${def.from} to complete this step`;
+          }
+        }
         passed = ok;
       } else {
         passed = false;
@@ -79,8 +74,12 @@ export function evaluateObjectives(
       } else {
         const pathArr = Array.isArray(def.path) ? def.path : [def.path];
         const val = resolvePropertyPath(dev, pathArr);
+        const lastSeg = pathArr[pathArr.length - 1];
         if (typeof def.equals === 'object' && def.equals !== null) {
           passed = matchesObject(val, def.equals);
+        } else if (lastSeg === 'peer' && typeof def.equals === 'string') {
+          // Cable ends may be written with short or long interface names.
+          passed = typeof val === 'string' && normalizePortId(val) === normalizePortId(def.equals);
         } else {
           passed = val === def.equals;
         }
@@ -150,14 +149,26 @@ export function evaluateObjectives(
       type: def.type,
       description: def.description,
       order: def.order,
-      locked,
-      passed: !locked && passed,
-      failed: !locked && failed,
+      locked: false,
+      passed,
+      failed,
       failReason: reason,
       hint: hintText,
       detail,
       guidance: def.guidance || getGuidanceForObjective(def.id) || undefined,
     });
+  }
+
+  // An objective with `order: n` is locked until every objective with a lower
+  // order passes. Done after evaluating all of them so list position doesn't matter.
+  const rawPassed = new Map(states.map((st) => [st.id, st.passed]));
+  for (const st of states) {
+    if (!st.order || st.order <= 1) continue;
+    st.locked = definitions.some((d) => d.order !== undefined && d.order < st.order! && !rawPassed.get(d.id));
+    if (st.locked) {
+      st.passed = false;
+      st.failed = false;
+    }
   }
 
   const allCompleted = states.length > 0 && states.every((s) => s.passed);
