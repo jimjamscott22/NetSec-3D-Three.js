@@ -1,4 +1,4 @@
-# NetSec 3D Simulator
+# NetSec 3D Simulator - Three.js Version
 
 A browser-based 3D networking and security simulator built with Three.js, React, and TypeScript. Fix broken networks and insecure servers in an interactive server room through a Cisco IOS-style terminal, across four missions: orientation, VLAN connectivity, log triage, and web patching. Built to teach CCNA-level networking concepts and introductory security investigation hands-on.
 
