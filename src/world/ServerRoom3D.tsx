@@ -1668,10 +1668,11 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
         // 1. Exponential smooth glide along rack rails
         data.group.position.z = THREE.MathUtils.damp(data.group.position.z, data.targetZ, 9, delta);
 
-        // 2. Exploded layer separation
-        if (data.subLayers && isSelectedChassis) {
+        // 2. Exploded layer separation (only the selected chassis; others reassemble)
+        if (data.subLayers) {
+          const separation = isSelectedChassis ? liveRef.current.explodedSeparation : 0;
           for (const layer of data.subLayers) {
-            const targetY = layer.baseY + liveRef.current.explodedSeparation * layer.explodeMult * 0.18;
+            const targetY = layer.baseY + separation * layer.explodeMult * 0.18;
             layer.mesh.position.y = THREE.MathUtils.damp(layer.mesh.position.y, targetY, 8, delta);
           }
         }
