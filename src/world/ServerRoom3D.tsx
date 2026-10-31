@@ -782,11 +782,20 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
     const width = container.clientWidth;
     const height = container.clientHeight;
 
-    // Scene with smooth depth fog
+    // Scene with a command-wall backdrop and smooth depth fog.
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x060911);
     scene.fog = new THREE.FogExp2(0x060911, 0.075);
     sceneRef.current = scene;
+
+    const terminalBackdrop = new THREE.TextureLoader().load(
+      '/terminal-command-wall.png',
+      (texture) => {
+        texture.colorSpace = THREE.SRGBColorSpace;
+        scene.background = texture;
+        scene.backgroundIntensity = 0.42;
+      }
+    );
 
     // Camera
     const camera = new THREE.PerspectiveCamera(46, width / height, 0.1, 100);
@@ -1822,6 +1831,7 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
       if (container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);
       }
+      terminalBackdrop.dispose();
       renderer.dispose();
     };
   }, [sim, scenarioId]);
