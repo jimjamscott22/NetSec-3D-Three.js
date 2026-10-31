@@ -16,7 +16,7 @@ import {
 import { ConnectivityResolver } from '../net/resolver';
 import { CliSession } from '../cli/session';
 import { evaluateObjectives, HttpLogEntry } from '../scenario/evaluator';
-import { normalizeInterfaceName } from '../net/ifname';
+import { normalizePortId } from '../net/ifname';
 import { matchesAcceptPatterns } from '../web/patch_matcher';
 
 export class NetworkSim {
@@ -30,6 +30,11 @@ export class NetworkSim {
   reportAnswers: Map<string, string> = new Map();
 
   httpLogs: HttpLogEntry[] = [];
+
+  // Pings the player actually ran from a terminal (src device id + destination ip).
+  playerPings: Array<{ srcId: string; dstIp: string; success: boolean }> = [];
+
+  private missionCompleteNotified = false;
 
   private resolver: ConnectivityResolver;
   private sessions: Map<string, CliSession> = new Map();
@@ -53,8 +58,10 @@ export class NetworkSim {
     this.reportStates.clear();
     this.reportAnswers.clear();
     this.httpLogs = [];
+    this.playerPings = [];
+    this.missionCompleteNotified = false;
     this.spareCablesCount = scenario.spare_cables || 0;
-    this.reservedPorts = new Set(scenario.reserved_ports || []);
+    this.reservedPorts = new Set((scenario.reserved_ports || []).map(normalizePortId));
 
     // 1. Instantiate devices
     for (const devDef of scenario.devices) {
@@ -101,7 +108,9 @@ export class NetworkSim {
       }
 
       if (cfg.vulns) {
-        dev.vulns = [...cfg.vulns];
+        // Deep copy: writePatch() mutates vuln regions, and restarting a mission
+        // must not inherit the previous attempt's line ranges.
+        dev.vulns = JSON.parse(JSON.stringify(cfg.vulns));
       }
 
       this.devices.set(dev.id, dev);
@@ -145,7 +154,9 @@ export class NetworkSim {
     return { ok: true, errors: [] };
   }
 
-  private applyLink(aPort: string, bPort: string, locked: boolean = false): boolean {
+  private applyLink(rawA: string, rawB: string, locked: boolean = false): boolean {
+    const aPort = normalizePortId(rawA);
+    const bPort = normalizePortId(rawB);
     const [devAId, ifAName] = aPort.split(':');
     const [devBId, ifBName] = bPort.split(':');
 
@@ -165,7 +176,9 @@ export class NetworkSim {
     return true;
   }
 
-  connectLink(aPort: string, bPort: string): { ok: boolean; reason?: string } {
+  connectLink(rawA: string, rawB: string): { ok: boolean; reason?: string } {
+    const aPort = normalizePortId(rawA);
+    const bPort = normalizePortId(rawB);
     if (this.spareCablesCount <= 0) {
       return { ok: false, reason: 'No spare cables remaining in inventory.' };
     }
@@ -213,7 +226,8 @@ export class NetworkSim {
     return { ok: true };
   }
 
-  disconnectLink(port: string): { ok: boolean; reason?: string } {
+  disconnectLink(rawPort: string): { ok: boolean; reason?: string } {
+    const port = normalizePortId(rawPort);
     const linkIdx = this.links.findIndex((l) => l.a === port || l.b === port);
     if (linkIdx === -1) {
       return { ok: false, reason: 'No link connected to this port.' };
@@ -252,6 +266,13 @@ export class NetworkSim {
 
   ping(srcId: string, dstIp: string): PingResult {
     return this.resolver.resolvePing(srcId, dstIp);
+  }
+
+  /** A ping typed by the player in a terminal. Recorded so objectives can require it. */
+  playerPing(srcId: string, dstIp: string): PingResult {
+    const res = this.ping(srcId, dstIp);
+    this.playerPings.push({ srcId, dstIp, success: res.success });
+    return res;
   }
 
   httpRequest(srcId: string, url: string): HttpResult {
@@ -312,7 +333,12 @@ export class NetworkSim {
       // Decode query param
       const searchParams = new URLSearchParams(query);
       const userValue = searchParams.get(vuln.exploit.param) || '';
-      const payloadDecoded = decodeURIComponent(userValue.trim());
+      let payloadDecoded = userValue.trim();
+      try {
+        payloadDecoded = decodeURIComponent(payloadDecoded);
+      } catch {
+        // Already decoded by URLSearchParams; a stray '%' must not crash curl.
+      }
 
       // Check current patch status
       const fileContent = dstDev.files.get(vuln.region.file) || '';
@@ -455,7 +481,7 @@ export class NetworkSim {
 
     const session = new CliSession(
       dev,
-      (src, dst) => this.ping(src, dst),
+      (src, dst) => this.playerPing(src, dst),
       (src, url) => this.httpRequest(src, url)
     );
     this.sessions.set(deviceId, session);
@@ -471,15 +497,20 @@ export class NetworkSim {
       (s, d) => this.ping(s, d),
       this.reportStates,
       this.httpLogs,
-      this.currentScenario.hints
+      this.currentScenario.hints,
+      this.playerPings
     );
 
     if (this.onObjectiveUpdated) {
       this.onObjectiveUpdated(evalResult.states);
     }
 
-    if (evalResult.allCompleted && this.onMissionCompleted) {
-      this.onMissionCompleted(this.currentScenario.id);
+    if (evalResult.allCompleted) {
+      // Fire once per attempt, not on every later command.
+      if (!this.missionCompleteNotified) {
+        this.missionCompleteNotified = true;
+        this.onMissionCompleted?.(this.currentScenario.id);
+      }
     } else if (evalResult.hasFailed && this.onMissionFailed) {
       this.onMissionFailed(this.currentScenario.id);
     }
@@ -493,7 +524,8 @@ export class NetworkSim {
       (s, d) => this.ping(s, d),
       this.reportStates,
       this.httpLogs,
-      this.currentScenario.hints
+      this.currentScenario.hints,
+      this.playerPings
     ).states;
   }
 

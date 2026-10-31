@@ -95,6 +95,8 @@ export const TerminalConsole: React.FC<TerminalConsoleProps> = ({
       e.preventDefault();
       const cmd = inputVal;
       const res = session.execute(cmd);
+      // Config changes and pings can complete objectives; re-evaluate after every command.
+      sim.notifyObjectives();
 
       setHistoryLines((prev) => [
         ...prev,
@@ -163,6 +165,7 @@ export const TerminalConsole: React.FC<TerminalConsoleProps> = ({
     if (e.ctrlKey && e.key === 'z') {
       e.preventDefault();
       const res = session.execute('end');
+      sim.notifyObjectives();
       setHistoryLines((prev) => [
         ...prev,
         { type: 'input', text: '^Z', prompt: currentPrompt },

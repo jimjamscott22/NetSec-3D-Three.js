@@ -7,11 +7,11 @@ export const OBJECTIVE_GUIDANCE_MAP: Record<string, StepGuidance> = {
     actionType: 'cable',
     summary: 'Cable PC-B on Desk 2 to switch S1 port FastEthernet0/2.',
     steps: [
-      'Look at Switch S1 in Rack A (slot 3) or click camera preset "Rack A (Gear)".',
+      'Click the "Rack A" camera angle to look at Switch S1 (slot 3).',
       'Click on free port socket S1:Fa0/2 (the second FastEthernet port from the left).',
       'You are now holding an Ethernet cable from S1:Fa0/2 (see status banner).',
-      'Turn towards Desk 2 and click PC-B:Eth0 (or click the PC-B tower).',
-      'The cable will connect and appear in 3D. The port LED will turn amber, awaiting VLAN configuration.',
+      'Click the "Desk 2" camera angle, then click the PC-B tower or its Eth0 socket.',
+      'The cable appears in 3D and both port LEDs turn green. PC-B is still in VLAN 1 until you configure Fa0/2.',
     ],
     suggestedCommands: ['Click S1:Fa0/2 ➜ Click PC-B:Eth0'],
     explanation:
