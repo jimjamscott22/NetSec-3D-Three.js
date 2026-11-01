@@ -5,10 +5,10 @@ A browser-based 3D networking and security simulator built with Three.js, React,
 All devices, packets, logs, HTTP responses, and code patches are simulated in the browser. No physical networking equipment, backend service, database, or PHP runtime is required.
 
 <p align="center">
-  <a href="hive-Scrnsht.png"
+  <a href="???"
      target="_blank">
-    <img src="dist\terminal-command-wall.png"
-         alt="ChatArchive interface preview"
+    <img src="docs\terminal-command-wall.png"
+         alt="netsec-3d interface preview"
          width="700">
   </a>
 </p>
