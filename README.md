@@ -29,13 +29,16 @@ All devices, packets, logs, HTTP responses, and code patches are simulated in th
 
 ## Features and missions
 
-- Interactive Three.js server room with camera presets, equipment labels, clickable devices and ports, cable customization, and link indicators.
+- Interactive Three.js server room with camera presets (including Rear Servicing angle), equipment labels, clickable devices and ports, cable customization, and link indicators.
+- Realistic server chassis mechanics: telescopic slide rails, removable top cover lids exposing internal dual Xeon CPUs and RAM DIMMs, spinning blower fans with turbo mode, hot-swap SAS drive bays, and dual redundant hot-swap power supplies (PSUs) with N+0 failover and total AC power loss simulation.
+- Expanded 42U rack units across Rack A and Rack B, including 1U Dual Automatic Transfer Switch (ATS1) and 1U 48-Port Keystone Passthrough Bay (PATCH_48).
+- Advanced cable studio: quick-apply styling presets (VLAN Standard, Datacenter Fabric, SAN Storage, High-Contrast Audit), custom hex color picker, catenary sag tension adjustment, animated packet light pulses, and 3D velcro cable management grouping combs.
 - Simulated routers, switches, PCs, and servers with IPv4 addressing, access VLANs, trunks, router subinterfaces, and connectivity checks.
 - IOS-style configuration modes, command abbreviations, contextual help, terminal history, and completion.
 - Live mission objectives, contextual guidance, mission restart, and completion tracking.
 - SOC log viewer, threat map, and incident report form.
 - Guided patch editor for SQL injection and reflected cross-site scripting exercises.
-- Sound effects with mute controls.
+- Sound effects with mute controls (rail slides, latch clicks, power switch clicks, fan spool, and cable snaps).
 
 | Mission | Title | Practice |
 | --- | --- | --- |
@@ -93,14 +96,17 @@ No environment variables, API keys, or account setup are required. [.env.example
 
 | Action | Control |
 | --- | --- |
-| Change viewpoint | Use the camera angle buttons, such as Overview or the desk views. |
+| Change viewpoint | Use the camera angle buttons (Overview, Rack A, Rack B, Rear Servicing, KVM Drawer, Desk 1, Desk 2, SOC Monitor). |
 | Orbit the room | Hold the left mouse button and drag in the 3D viewport. |
 | Zoom | Scroll in the 3D viewport. |
+| Inspect chassis & rails | Click any rack unit or use the bottom dock Chassis tab to extend rails, remove top lid, or toggle power. |
+| Eject SAS drive or PSU | Click drive bays or rear power supplies directly in 3D or use the dock buttons to toggle eject and latch. |
+| Cable studio & presets | Open the Cable Studio dock tab to apply VLAN/DC/SAN presets, adjust sag, toggle light pulses, or toggle velcro combs. |
 | Open a device console | Click a mission device or use the top-bar **CLI Terminal** button. |
 | Change terminal device | Use the device selector in the terminal. |
 | Connect a cable | Click a free source port, then a free destination port; a spare cable must be available. |
 | Cancel a port selection | Click the selected source port again. |
-| Disconnect a cable | Click an occupied port on an unlocked link. Locked scenario links cannot be removed. |
+| Disconnect a cable | Click an occupied port on an unlocked link, or click a cable to select and unplug. |
 | Toggle guidance | Click **Guidance (H)** or press **H** while focus is outside a text input. |
 | Run a command | Press **Enter** in the terminal. |
 | Browse command history | Press **Up / Down** in the terminal. |

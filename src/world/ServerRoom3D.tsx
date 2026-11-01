@@ -94,6 +94,7 @@ export interface RackUnitSpec {
   specs: string;
   isKvm?: boolean;
   driveCount?: number;
+  hasDualPsu?: boolean;
 }
 
 export const ALL_RACK_UNITS: RackUnitSpec[] = [
@@ -140,6 +141,7 @@ export const ALL_RACK_UNITS: RackUnitSpec[] = [
     canTerminal: true,
     model: 'router_2port',
     specs: 'Cisco 2901 Integrated Services Router • 2x GigabitEthernet • Cisco IOS 15.1',
+    hasDualPsu: true,
   },
   {
     id: 'PATCH_A',
@@ -182,6 +184,7 @@ export const ALL_RACK_UNITS: RackUnitSpec[] = [
     canTerminal: true,
     model: 'switch_24',
     specs: 'Cisco Catalyst 2960-24TT • 24x 10/100 + 2x 1000BASE-T • 802.1Q Trunking',
+    hasDualPsu: true,
   },
   {
     id: 'WEB1',
@@ -197,6 +200,7 @@ export const ALL_RACK_UNITS: RackUnitSpec[] = [
     model: 'server',
     specs: 'Dell PowerEdge R640 1U • 2x Intel Xeon Silver • 64GB DDR4 • Apache/PHP',
     driveCount: 8,
+    hasDualPsu: true,
   },
   {
     id: 'HSM1',
@@ -226,6 +230,21 @@ export const ALL_RACK_UNITS: RackUnitSpec[] = [
     model: 'server_2u',
     specs: '2U Storage Server • 12x 3.84TB SAS SSD • Hardware RAID 10 • MySQL Core',
     driveCount: 12,
+    hasDualPsu: true,
+  },
+  {
+    id: 'ATS1',
+    name: '1U Dual-Source Automatic Transfer Switch',
+    rack: 'Rack A',
+    slot: 10,
+    uHeight: 1,
+    y: 0.96,
+    zBase: 0,
+    color: 0x1e1b4b,
+    canSlide: false,
+    canTerminal: false,
+    model: 'ats_1u',
+    specs: 'APC Rack ATS 1U • 16A 230V Dual IEC Inputs • 10ms Fast Relay Transfer',
   },
   {
     id: 'FW1',
@@ -240,6 +259,7 @@ export const ALL_RACK_UNITS: RackUnitSpec[] = [
     canTerminal: false,
     model: 'firewall_1u',
     specs: 'Enterprise State-Inspection Firewall • Deep Packet Inspection • IPS Engine',
+    hasDualPsu: true,
   },
   {
     id: 'ENV1',
@@ -298,6 +318,7 @@ export const ALL_RACK_UNITS: RackUnitSpec[] = [
     canTerminal: false,
     model: 'router_2port',
     specs: 'Redundant Core Edge Router • Dual 10G SFP+ Uplinks • BGP Peering',
+    hasDualPsu: true,
   },
   {
     id: 'PATCH_B',
@@ -326,6 +347,7 @@ export const ALL_RACK_UNITS: RackUnitSpec[] = [
     canTerminal: false,
     model: 'switch_24',
     specs: 'Catalyst 3850 24-Port Stackable Distribution Switch • Multigigabit',
+    hasDualPsu: true,
   },
   {
     id: 'FIBER_B',
@@ -355,6 +377,21 @@ export const ALL_RACK_UNITS: RackUnitSpec[] = [
     model: 'storage_2u',
     specs: '12-Bay Fibre Channel / iSCSI SAN Storage Array • 192TB RAW',
     driveCount: 12,
+    hasDualPsu: true,
+  },
+  {
+    id: 'PATCH_48',
+    name: '1U 48-Port High-Density Keystone Passthrough',
+    rack: 'Rack B',
+    slot: 7,
+    uHeight: 1,
+    y: 1.36,
+    zBase: -1.4,
+    color: 0x1e293b,
+    canSlide: false,
+    canTerminal: false,
+    model: 'patch_48',
+    specs: 'Cat6A STP Shielded 48-Port Feed-Through Bay • High-Density Gold Pins',
   },
   {
     id: 'SAN_EXP',
@@ -370,6 +407,7 @@ export const ALL_RACK_UNITS: RackUnitSpec[] = [
     model: 'storage_2u',
     specs: '12-Bay JBOD Expansion Enclosure • 12Gb/s SAS-3 Interconnect',
     driveCount: 12,
+    hasDualPsu: true,
   },
   {
     id: 'IDS1',
@@ -399,6 +437,7 @@ export const ALL_RACK_UNITS: RackUnitSpec[] = [
     model: 'server_2u',
     specs: 'Kubernetes Worker Node 02 • High-Memory 128GB • Docker Container Host',
     driveCount: 8,
+    hasDualPsu: true,
   },
   {
     id: 'UPS2',
@@ -445,6 +484,7 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
 
   // Advanced Server Chassis Animations State
   const [ejectedDrives, setEjectedDrives] = useState<Record<string, number[]>>({ WEB1: [2] }); // Drive 2 ejected on WEB1 by default
+  const [ejectedPsus, setEjectedPsus] = useState<Record<string, number[]>>({}); // Dual hot-swap PSUs
   const [lidOpenUnits, setLidOpenUnits] = useState<string[]>(['WEB1']); // WEB1 lid open by default to show interior
   const [powerOffUnits, setPowerOffUnits] = useState<string[]>([]);
   const [isTurboFan, setIsTurboFan] = useState<boolean>(false);
@@ -456,6 +496,7 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
   const [customCableColors, setCustomCableColors] = useState<Record<string, number>>({});
   const [customCableTension, setCustomCableTension] = useState<number>(0.28); // Catenary sag multiplier
   const [isSignalPulseActive, setIsSignalPulseActive] = useState<boolean>(true);
+  const [showCableCombs, setShowCableCombs] = useState<boolean>(true); // Velcro bundle comb ties
   const [selectedCableKey, setSelectedCableKey] = useState<string | null>(null);
   const [customHexInput, setCustomHexInput] = useState<string>('#00e5ff');
 
@@ -473,6 +514,7 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const portMarkersRef = useRef<PortMarker[]>([]);
   const cableMeshesRef = useRef<Array<{ mesh: THREE.Mesh; linkKey: string; curve: THREE.CatmullRomCurve3 }>>([]);
+  const cableCombsRef = useRef<THREE.Mesh[]>([]);
   const pulseSpheresRef = useRef<Array<{ mesh: THREE.Mesh; curve: THREE.CatmullRomCurve3; progress: number; speed: number }>>([]);
   const unitGroupsRef = useRef<
     Map<
@@ -484,6 +526,7 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
         fans: THREE.Mesh[];
         leds: THREE.Mesh[];
         drives: Array<{ mesh: THREE.Mesh; baseZ: number; driveIdx: number }>;
+        psus: Array<{ mesh: THREE.Mesh; baseZ: number; psuIdx: number; led: THREE.Mesh }>;
         lidMesh?: THREE.Mesh;
         kvmScreenGroup?: THREE.Group;
         subLayers?: Array<{ mesh: THREE.Object3D; baseY: number; explodeMult: number }>;
@@ -491,7 +534,7 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
       }
     >
   >(new Map());
-  const clickableMeshesRef = useRef<Array<{ id: string; mesh: THREE.Mesh; type: 'device' | 'rackUnit' | 'cable' | 'drive' | 'powerBtn'; meta?: any }>>([]);
+  const clickableMeshesRef = useRef<Array<{ id: string; mesh: THREE.Mesh; type: 'device' | 'rackUnit' | 'cable' | 'drive' | 'powerBtn' | 'psu'; meta?: any }>>([]);
 
   // Camera animation target
   const cameraTargetRef = useRef<{ pos: THREE.Vector3; lookAt: THREE.Vector3 }>({
@@ -507,7 +550,7 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
   }, []);
 
   // Camera view preset handler
-  const setCameraPreset = (preset: 'overview' | 'rack_a' | 'rack_b' | 'kvm' | 'desk_1' | 'desk_2' | 'soc') => {
+  const setCameraPreset = (preset: 'overview' | 'rack_a' | 'rack_b' | 'rear' | 'kvm' | 'desk_1' | 'desk_2' | 'soc') => {
     sounds.playKeyClick();
     if (preset === 'overview') {
       cameraTargetRef.current = {
@@ -524,6 +567,11 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
         pos: new THREE.Vector3(-1.1, 1.8, -0.1),
         lookAt: new THREE.Vector3(-1.8, 1.5, -1.4),
       };
+    } else if (preset === 'rear') {
+      cameraTargetRef.current = {
+        pos: new THREE.Vector3(-1.8, 1.9, -2.5),
+        lookAt: new THREE.Vector3(-1.8, 1.5, -0.7),
+      };
     } else if (preset === 'kvm') {
       cameraTargetRef.current = {
         pos: new THREE.Vector3(-1.4, 2.75, 0.95),
@@ -531,7 +579,6 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
       };
     } else if (preset === 'desk_1') {
       cameraTargetRef.current = {
-        // Frame the whole desk incl. the PC tower and its NIC socket.
         pos: new THREE.Vector3(0.8, 1.9, 3.3),
         lookAt: new THREE.Vector3(1.9, 0.2, 1.2),
       };
@@ -597,12 +644,33 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
     });
   };
 
+  // Toggle Hot-Swap Redundant Power Supply (PSU) Ejection
+  const togglePsuEject = (unitId: string, psuIdx: number) => {
+    sounds.playLatchClick();
+    setEjectedPsus((prev) => {
+      const currentList = prev[unitId] || [];
+      const isEjected = currentList.includes(psuIdx);
+      const updatedList = isEjected ? currentList.filter((i) => i !== psuIdx) : [...currentList, psuIdx];
+      const psuNum = psuIdx + 1;
+      if (isEjected) {
+        showToast(`Latched hot-swap PSU #${psuNum} into ${unitId} rear bay (AC input online).`);
+      } else {
+        if (updatedList.length === 1) {
+          showToast(`⚠️ Unlatched PSU #${psuNum} from ${unitId}. Redundancy degraded: running on single PSU.`);
+        } else if (updatedList.length >= 2) {
+          showToast(`❌ Unlatched both PSUs from ${unitId}! Total AC loss: server unpowered.`);
+        }
+      }
+      return { ...prev, [unitId]: updatedList };
+    });
+  };
+
   // Re-sync cables and LEDs when state changes
   const updateCablesAndLeds = useCallback(() => {
     const scene = sceneRef.current;
     if (!scene) return;
 
-    // 1. Remove old cable meshes and pulse spheres
+    // 1. Remove old cable meshes, pulse spheres, and cable combs
     for (const item of cableMeshesRef.current) {
       scene.remove(item.mesh);
       item.mesh.geometry.dispose();
@@ -613,6 +681,13 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
       }
     }
     cableMeshesRef.current = [];
+
+    for (const comb of cableCombsRef.current) {
+      scene.remove(comb);
+      comb.geometry.dispose();
+      (comb.material as THREE.Material).dispose();
+    }
+    cableCombsRef.current = [];
 
     for (const p of pulseSpheresRef.current) {
       scene.remove(p.mesh);
@@ -680,6 +755,25 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
         meta: { link, hex: cableHex },
       });
 
+      // Add Velcro Cable Management Combs along the span if enabled
+      if (showCableCombs) {
+        const combGeo = new THREE.CylinderGeometry(0.024, 0.024, 0.038, 12);
+        const combMat = new THREE.MeshStandardMaterial({
+          color: 0x0284c7, // Velcro strap with cyan accent
+          metalness: 0.3,
+          roughness: 0.8,
+        });
+        for (const t of [0.32, 0.68]) {
+          const pt = curve.getPointAt(t);
+          const tangent = curve.getTangentAt(t);
+          const comb = new THREE.Mesh(combGeo, combMat);
+          comb.position.copy(pt);
+          comb.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), tangent);
+          scene.add(comb);
+          cableCombsRef.current.push(comb);
+        }
+      }
+
       // Add signal pulse sphere if enabled
       if (isSignalPulseActive) {
         const pulseGeo = new THREE.SphereGeometry(0.026, 8, 8);
@@ -723,11 +817,11 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
         ledMat.emissive.setHex(0xb45309);
       }
     }
-  }, [sim, customCableColors, customCableTension, isSignalPulseActive, selectedCableKey]);
+  }, [sim, customCableColors, customCableTension, isSignalPulseActive, showCableCombs, selectedCableKey]);
 
   useEffect(() => {
     updateCablesAndLeds();
-  }, [sim.links, simRevision, customCableColors, customCableTension, isSignalPulseActive, selectedCableKey, updateCablesAndLeds]);
+  }, [sim.links, simRevision, customCableColors, customCableTension, isSignalPulseActive, showCableCombs, selectedCableKey, updateCablesAndLeds]);
 
   // Recolor all cables to a selected palette
   const handleRecolorAllCables = (hex: number) => {
@@ -740,27 +834,63 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
     showToast('Applied color to all Cat6 network cables in the room.');
   };
 
-  // Automatically color-code by TIA-606-C Standards
-  const handleApplyTiaStandards = () => {
+  // Quick-Apply Cable Preset Profiles
+  const handleApplyCablePreset = (presetId: 'vlan_standard' | 'datacenter_fabric' | 'san_storage' | 'high_contrast') => {
     sounds.playSuccessBeep();
     const updated: Record<string, number> = {};
     for (const link of sim.links) {
       const key = linkKeyOf(link.a, link.b);
       const either = (ifName: string) => portIs(link.a, ifName) || portIs(link.b, ifName);
-      if (either('GigabitEthernet0/1')) {
-        updated[key] = 0x06b6d4; // Aqua for 802.1Q Trunk
-      } else if (link.a.includes('PC-B') || link.b.includes('PC-B') || either('FastEthernet0/2')) {
-        updated[key] = 0xf59e0b; // Amber for Sales VLAN 20
-      } else if (link.a.includes('PC-A') || link.b.includes('PC-A') || either('FastEthernet0/1')) {
-        updated[key] = 0x2563eb; // Blue for Accounting VLAN 10
-      } else if (link.a.includes('WEB') || link.b.includes('WEB')) {
-        updated[key] = 0x10b981; // Emerald for Production Web Server
-      } else {
-        updated[key] = 0x2563eb;
+
+      if (presetId === 'vlan_standard') {
+        if (either('GigabitEthernet0/1')) {
+          updated[key] = 0x06b6d4; // Aqua for 802.1Q Trunk
+        } else if (link.a.includes('PC-B') || link.b.includes('PC-B') || either('FastEthernet0/2')) {
+          updated[key] = 0xf59e0b; // Amber for Sales VLAN 20
+        } else if (link.a.includes('PC-A') || link.b.includes('PC-A') || either('FastEthernet0/1')) {
+          updated[key] = 0x2563eb; // Blue for Accounting VLAN 10
+        } else if (link.a.includes('WEB') || link.b.includes('WEB')) {
+          updated[key] = 0x10b981; // Emerald for Production Web Server
+        } else {
+          updated[key] = 0x2563eb;
+        }
+      } else if (presetId === 'datacenter_fabric') {
+        if (either('GigabitEthernet0/1') || either('GigabitEthernet0/0')) {
+          updated[key] = 0x00e5ff; // Electric Cyan
+        } else if (link.a.includes('PC') || link.b.includes('PC')) {
+          updated[key] = 0x1d4ed8; // Deep Blue Host Access
+        } else if (link.a.includes('SAN') || link.b.includes('SAN') || link.a.includes('DB') || link.b.includes('DB')) {
+          updated[key] = 0xea580c; // Tangerine Storage
+        } else {
+          updated[key] = 0x475569; // Stealth Slate
+        }
+      } else if (presetId === 'san_storage') {
+        if (link.a.includes('SAN') || link.b.includes('SAN') || link.a.includes('DB') || link.b.includes('DB')) {
+          updated[key] = 0xea580c; // Fiber Orange SAN
+        } else if (either('GigabitEthernet0/1')) {
+          updated[key] = 0x06b6d4; // Aqua
+        } else {
+          updated[key] = 0xf59e0b; // Amber LAN
+        }
+      } else if (presetId === 'high_contrast') {
+        if (either('GigabitEthernet0/1')) {
+          updated[key] = 0xf8fafc; // Polar White
+        } else if (link.a.includes('PC-B') || link.b.includes('PC-B')) {
+          updated[key] = 0xeab308; // High-Vis Yellow
+        } else if (link.a.includes('PC-A') || link.b.includes('PC-A')) {
+          updated[key] = 0x06b6d4; // Cyan
+        } else {
+          updated[key] = 0xef4444; // Crimson
+        }
       }
     }
     setCustomCableColors(updated);
-    showToast('Color-coded all cables conforming to ANSI/TIA-606-C VLAN standards!');
+    showToast(`Applied "${presetId.replace('_', ' ').toUpperCase()}" cable bundle styling profile.`);
+  };
+
+  // TIA-606-C Standards Cable Auto-Color
+  const handleApplyTiaStandards = () => {
+    handleApplyCablePreset('vlan_standard');
   };
 
   // Color specific selected cable
@@ -1011,7 +1141,7 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
 
     // --- PROCEDURAL DETAILED RACK EQUIPMENT CHASSIS BUILDER ---
     const markers: PortMarker[] = [];
-    const clickables: Array<{ id: string; mesh: THREE.Mesh; type: 'device' | 'rackUnit' | 'cable' | 'drive' | 'powerBtn'; meta?: any }> = [];
+    const clickables: Array<{ id: string; mesh: THREE.Mesh; type: 'device' | 'rackUnit' | 'cable' | 'drive' | 'powerBtn' | 'psu'; meta?: any }> = [];
     const unitMap = new Map<
       string,
       {
@@ -1021,6 +1151,7 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
         fans: THREE.Mesh[];
         leds: THREE.Mesh[];
         drives: Array<{ mesh: THREE.Mesh; baseZ: number; driveIdx: number }>;
+        psus: Array<{ mesh: THREE.Mesh; baseZ: number; psuIdx: number; led: THREE.Mesh }>;
         lidMesh?: THREE.Mesh;
         kvmScreenGroup?: THREE.Group;
         subLayers?: Array<{ mesh: THREE.Object3D; baseY: number; explodeMult: number }>;
@@ -1274,6 +1405,118 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
         }
       }
 
+      // 10. Dual Hot-Swap Redundant Power Supply Units (PSU 1 & PSU 2) on rear face
+      const psuMeshes: Array<{ mesh: THREE.Mesh; baseZ: number; psuIdx: number; led: THREE.Mesh }> = [];
+      if (spec.hasDualPsu) {
+        const psuWidth = 0.13;
+        const psuHeight = Math.min(0.042, heightMeters * 0.78);
+        const psuDepth = 0.22;
+        const psuBaseZ = -depthMeters / 2 - 0.015;
+
+        for (let p = 0; p < 2; p++) {
+          const psuX = -0.22 + p * 0.16; // Side-by-side PSUs on rear left
+          const psuGroup = new THREE.Mesh(
+            new THREE.BoxGeometry(psuWidth, psuHeight, psuDepth),
+            new THREE.MeshStandardMaterial({ color: 0x334155, metalness: 0.85, roughness: 0.25 })
+          );
+          psuGroup.position.set(psuX, 0, psuBaseZ);
+          chassisGroup.add(psuGroup);
+
+          // IEC C14 power inlet socket (black recessed block on rear face)
+          const iecSocket = new THREE.Mesh(
+            new THREE.BoxGeometry(0.042, 0.026, 0.01),
+            new THREE.MeshStandardMaterial({ color: 0x050505, roughness: 0.9 })
+          );
+          iecSocket.position.set(0.02, 0, -psuDepth / 2 - 0.005);
+          psuGroup.add(iecSocket);
+
+          // Red mechanical extraction lever latch handle
+          const psuLever = new THREE.Mesh(
+            new THREE.BoxGeometry(0.02, 0.028, 0.018),
+            new THREE.MeshStandardMaterial({ color: 0xdc2626, metalness: 0.5, roughness: 0.4 })
+          );
+          psuLever.position.set(-0.04, 0, -psuDepth / 2 - 0.008);
+          psuGroup.add(psuLever);
+
+          // Wire bail extraction handle
+          const bailHandle = new THREE.Mesh(
+            new THREE.BoxGeometry(0.005, 0.032, 0.025),
+            new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.95, roughness: 0.1 })
+          );
+          bailHandle.position.set(-0.02, 0, -psuDepth / 2 - 0.012);
+          psuGroup.add(bailHandle);
+
+          // Dual-state AC status LED (Green = OK, Amber = Degraded Single, Off = Ejected)
+          const psuLed = new THREE.Mesh(
+            new THREE.SphereGeometry(0.005, 8, 8),
+            new THREE.MeshStandardMaterial({ color: 0x22c55e, emissive: 0x16a34a })
+          );
+          psuLed.position.set(0.048, 0.012, -psuDepth / 2 - 0.005);
+          psuGroup.add(psuLed);
+
+          psuMeshes.push({ mesh: psuGroup, baseZ: psuBaseZ, psuIdx: p, led: psuLed });
+          clickables.push({
+            id: `${spec.id}_psu_${p}`,
+            mesh: psuGroup,
+            type: 'psu',
+            meta: { unitId: spec.id, psuIdx: p },
+          });
+        }
+      }
+
+      // 11. Special 1U Dual ATS (Automatic Transfer Switch) Front & Rear Details
+      if (spec.id === 'ATS1') {
+        // Dual Source indicators (Source A: Blue, Source B: Green)
+        const srcAGeo = new THREE.CylinderGeometry(0.007, 0.007, 0.01, 8);
+        const srcAMat = new THREE.MeshStandardMaterial({ color: 0x38bdf8, emissive: 0x0284c7 });
+        const srcA = new THREE.Mesh(srcAGeo, srcAMat);
+        srcA.rotation.x = Math.PI / 2;
+        srcA.position.set(-0.25, 0, depthMeters / 2 + 0.022);
+        chassisGroup.add(srcA);
+
+        const srcBGeo = new THREE.CylinderGeometry(0.007, 0.007, 0.01, 8);
+        const srcBMat = new THREE.MeshStandardMaterial({ color: 0x22c55e, emissive: 0x16a34a });
+        const srcB = new THREE.Mesh(srcBGeo, srcBMat);
+        srcB.rotation.x = Math.PI / 2;
+        srcB.position.set(-0.20, 0, depthMeters / 2 + 0.022);
+        chassisGroup.add(srcB);
+
+        // Fast Relay Status & 4-segment load meter
+        for (let seg = 0; seg < 4; seg++) {
+          const segMesh = new THREE.Mesh(
+            new THREE.PlaneGeometry(0.018, 0.008),
+            new THREE.MeshBasicMaterial({ color: 0x10b981 })
+          );
+          segMesh.position.set(0.05 + seg * 0.024, 0, depthMeters / 2 + 0.022);
+          chassisGroup.add(segMesh);
+        }
+
+        // Dual rear IEC C20 source inlets
+        for (let src = 0; src < 2; src++) {
+          const inletMesh = new THREE.Mesh(
+            new THREE.BoxGeometry(0.05, 0.03, 0.015),
+            new THREE.MeshStandardMaterial({ color: src === 0 ? 0x0284c7 : 0x15803d, metalness: 0.7 })
+          );
+          inletMesh.position.set(-0.15 + src * 0.3, 0, -depthMeters / 2 - 0.01);
+          chassisGroup.add(inletMesh);
+        }
+      }
+
+      // 12. Special 1U 48-Port Keystone Passthrough Bay Details
+      if (spec.id === 'PATCH_48') {
+        const portMat = new THREE.MeshStandardMaterial({ color: 0x020617, roughness: 0.8 });
+        // Two rows of 24 ports
+        for (let r = 0; r < 2; r++) {
+          const py = r === 0 ? 0.01 : -0.01;
+          for (let p = 0; p < 24; p++) {
+            const px = -0.36 + p * 0.031;
+            const pMesh = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.014, 0.008), portMat);
+            pMesh.position.set(px, py, depthMeters / 2 + 0.021);
+            chassisGroup.add(pMesh);
+          }
+        }
+      }
+
       scene.add(chassisGroup);
       unitMap.set(spec.id, {
         group: chassisGroup,
@@ -1282,6 +1525,7 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
         fans: internalFans,
         leds: driveLeds,
         drives: driveMeshes,
+        psus: psuMeshes,
         lidMesh,
         kvmScreenGroup,
         subLayers,
@@ -1492,6 +1736,8 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
         if (found) {
           if (found.type === 'drive') {
             setHoveredDevice(`${found.meta.unitId} Drive #${found.meta.driveIdx + 1} (Hot-Swap)`);
+          } else if (found.type === 'psu') {
+            setHoveredDevice(`${found.meta.unitId} Power Supply PSU #${found.meta.psuIdx + 1} (Hot-Swap Redundant)`);
           } else if (found.type === 'powerBtn') {
             setHoveredDevice(`${found.meta.unitId} Power Switch`);
           } else {
@@ -1544,7 +1790,7 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
         }
       }
 
-      // Check Drive / Power Button / Device Click
+      // Check Drive / PSU / Power Button / Device Click
       const devMeshes = clickableMeshesRef.current.map((c) => c.mesh);
       const devHits = raycaster.intersectObjects(devMeshes);
       if (devHits.length > 0) {
@@ -1553,6 +1799,11 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
         if (found) {
           if (found.type === 'drive') {
             liveRef.current.toggleDriveEject(found.meta.unitId, found.meta.driveIdx);
+            return;
+          }
+
+          if (found.type === 'psu') {
+            liveRef.current.togglePsuEject(found.meta.unitId, found.meta.psuIdx);
             return;
           }
 
@@ -1672,12 +1923,20 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
         }
       }
 
-      // Chassis Slide Kinematics & Advanced Mechanics (Fans, Drives, Lid, KVM, Power, Exploded Layers)
+      // Chassis Slide Kinematics & Advanced Mechanics (Fans, Drives, PSUs, Lid, KVM, Power, Exploded Layers)
       for (const [unitId, data] of unitMap.entries()) {
         const isSlid = liveRef.current.slidOutUnitIds.includes(unitId);
         const isPowerOff = liveRef.current.powerOffUnits.includes(unitId);
         const isLidOff = liveRef.current.lidOpenUnits.includes(unitId);
         const isSelectedChassis = liveRef.current.selectedUnitId === unitId;
+
+        // Dual hot-swap PSU redundancy & power loss calculation
+        const unitEjectedPsus = (liveRef.current.ejectedPsus && liveRef.current.ejectedPsus[unitId]) || [];
+        const isDualPsuUnit = !!(data.psus && data.psus.length > 0);
+        const totalPsuCount = data.psus ? data.psus.length : 0;
+        const activePsuCount = totalPsuCount - unitEjectedPsus.length;
+        const hasTotalPowerLoss = isDualPsuUnit && activePsuCount <= 0;
+        const isEffectivelyPoweredOff = isPowerOff || hasTotalPowerLoss;
 
         data.targetZ = isSlid ? data.zBase + 0.58 : data.zBase;
 
@@ -1701,7 +1960,10 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
         // 4. Power Status LEDs
         for (const pLed of data.powerLeds) {
           const mat = pLed.material as THREE.MeshStandardMaterial;
-          if (isPowerOff) {
+          if (hasTotalPowerLoss) {
+            mat.color.setHex(0x0f172a);
+            mat.emissive.setHex(0x000000); // Dead power loss
+          } else if (isPowerOff) {
             mat.color.setHex(0xf59e0b);
             mat.emissive.setHex(0x78350f); // Amber standby
           } else {
@@ -1712,7 +1974,7 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
 
         // 5. Spin internal cooling blower fans
         if (data.fans.length > 0) {
-          if (!isPowerOff) {
+          if (!isEffectivelyPoweredOff) {
             const baseSpinSpeed = liveRef.current.isTurboFan ? 58 : isSlid ? 28 : 14;
             for (const fan of data.fans) {
               fan.rotation.z += delta * baseSpinSpeed;
@@ -1728,8 +1990,29 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
           d.mesh.position.z = THREE.MathUtils.damp(d.mesh.position.z, targetDriveZ, 12, delta);
         }
 
-        // 7. Drive Activity LEDs
-        if (data.leds.length > 0 && !isPowerOff && Math.random() < 0.2) {
+        // 7. Hot-Swap PSU Ejection Kinematics & LED status
+        if (data.psus) {
+          for (const p of data.psus) {
+            const isPsuEjected = unitEjectedPsus.includes(p.psuIdx);
+            const targetPsuZ = isPsuEjected ? p.baseZ - 0.16 : p.baseZ;
+            p.mesh.position.z = THREE.MathUtils.damp(p.mesh.position.z, targetPsuZ, 12, delta);
+
+            const psuLedMat = p.led.material as THREE.MeshStandardMaterial;
+            if (isPsuEjected) {
+              psuLedMat.color.setHex(0x1e293b);
+              psuLedMat.emissive.setHex(0x000000); // Unpowered / unlatched
+            } else if (activePsuCount === 1) {
+              psuLedMat.color.setHex(0xf59e0b);
+              psuLedMat.emissive.setHex(0xd97706); // Degraded single PSU amber warning
+            } else {
+              psuLedMat.color.setHex(0x22c55e);
+              psuLedMat.emissive.setHex(0x16a34a); // Dual redundant green
+            }
+          }
+        }
+
+        // 8. Drive Activity LEDs
+        if (data.leds.length > 0 && !isEffectivelyPoweredOff && Math.random() < 0.2) {
           const randomIdx = Math.floor(Math.random() * data.leds.length);
           const randomLed = data.leds[randomIdx];
           const isDriveEjected = unitEjected.includes(randomIdx);
@@ -1744,7 +2027,7 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
           }
         }
 
-        // 8. KVM Screen Fold Up / Down Hinge Kinematics
+        // 9. KVM Screen Fold Up / Down Hinge Kinematics
         if (data.kvmScreenGroup) {
           const targetAngle = isSlid && liveRef.current.isKvmFoldedUp ? -Math.PI * 0.42 : 0;
           data.kvmScreenGroup.rotation.x = THREE.MathUtils.damp(data.kvmScreenGroup.rotation.x, targetAngle, 8, delta);
@@ -1921,6 +2204,7 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
   liveRef.current = {
     slidOutUnitIds,
     ejectedDrives,
+    ejectedPsus,
     lidOpenUnits,
     powerOffUnits,
     isTurboFan,
@@ -1931,6 +2215,7 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
     selectedPort,
     handlePortClick,
     toggleDriveEject,
+    togglePsuEject,
     toggleChassisPower,
     onOpenTerminal,
     onOpenThreatMap,
@@ -2009,6 +2294,13 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
           className="px-2.5 py-1 rounded-lg hover:bg-slate-800 hover:text-cyan-400 transition"
         >
           Rack B
+        </button>
+        <button
+          onClick={() => setCameraPreset('rear')}
+          className="px-2.5 py-1 rounded-lg hover:bg-slate-800 hover:text-amber-400 transition"
+          title="Rear Servicing Camera (Dual PSUs & I/O)"
+        >
+          Rear Servicing
         </button>
         <button
           onClick={() => setCameraPreset('kvm')}
@@ -2408,6 +2700,71 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
                     </div>
                   </div>
                 )}
+
+                {/* Hot-Swap Dual Power Supplies (PSUs) Sub-Panel */}
+                {selectedUnitSpec.hasDualPsu && (
+                  <div className="mt-1 p-2 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between flex-wrap gap-2">
+                    <div className="flex items-center gap-2">
+                      <Zap className="w-4 h-4 text-amber-400" />
+                      <span className="text-slate-300 font-medium text-[11px]">
+                        Dual Hot-Swap Power Supplies (PSU 1 & PSU 2):
+                      </span>
+                      {(() => {
+                        const ejected = ejectedPsus[selectedUnitSpec.id] || [];
+                        if (ejected.length === 0) {
+                          return (
+                            <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-semibold">
+                              ● Dual AC Redundant (Online)
+                            </span>
+                          );
+                        } else if (ejected.length === 1) {
+                          return (
+                            <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[10px] font-semibold">
+                              ▲ Degraded Redundancy (N+0 Active)
+                            </span>
+                          );
+                        } else {
+                          return (
+                            <span className="px-2 py-0.5 rounded bg-red-500/20 text-red-300 border border-red-500/30 text-[10px] font-semibold">
+                              ✕ Total Power Loss (Offline)
+                            </span>
+                          );
+                        }
+                      })()}
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {[0, 1].map((pIdx) => {
+                        const isEjected = (ejectedPsus[selectedUnitSpec.id] || []).includes(pIdx);
+                        return (
+                          <button
+                            key={pIdx}
+                            onClick={() => togglePsuEject(selectedUnitSpec.id, pIdx)}
+                            className={`px-2.5 py-1 rounded-lg font-mono text-[11px] flex items-center gap-1.5 transition ${
+                              isEjected
+                                ? 'bg-amber-600/30 border border-amber-500/50 text-amber-300'
+                                : 'bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700'
+                            }`}
+                            title={`PSU #${pIdx + 1}: ${isEjected ? 'Ejected / Unlatched' : 'Latched in Rear Bay'}`}
+                          >
+                            <span className={`w-2 h-2 rounded-full ${isEjected ? 'bg-amber-500' : 'bg-emerald-400 shadow-sm shadow-emerald-400/50'}`} />
+                            <span>PSU #{pIdx + 1}</span>
+                            <span className="text-[10px] text-slate-400 font-sans">
+                              {isEjected ? '(Unlatched)' : '(Online)'}
+                            </span>
+                          </button>
+                        );
+                      })}
+                      <button
+                        onClick={() => setCameraPreset('rear')}
+                        className="px-2 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-cyan-300 border border-cyan-800/60 text-[10px] font-medium transition"
+                        title="Focus camera on rear I/O and power supplies"
+                      >
+                        Inspect Rear Bay
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -2537,13 +2894,64 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
 
                   {/* Batch Tools & Controls */}
                   <div className="flex items-center gap-2 flex-wrap">
+                    {/* Cable Styling Presets */}
+                    <div className="flex items-center gap-1.5 p-1 rounded-lg bg-slate-950 border border-slate-800">
+                      <span className="text-slate-400 text-[11px] font-semibold px-1">Presets:</span>
+                      <button
+                        onClick={() => handleApplyCablePreset('vlan_standard')}
+                        className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 text-[11px] font-medium transition"
+                        title="VLAN Standards (Trunk: Aqua, Sales: Amber, Tech: Blue, Web: Emerald)"
+                      >
+                        VLAN Standard
+                      </button>
+                      <button
+                        onClick={() => handleApplyCablePreset('datacenter_fabric')}
+                        className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-indigo-300 text-[11px] font-medium transition"
+                        title="DC Fabric (Cyan Core, Deep Blue Host, Orange Storage)"
+                      >
+                        DC Fabric
+                      </button>
+                      <button
+                        onClick={() => handleApplyCablePreset('san_storage')}
+                        className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-amber-300 text-[11px] font-medium transition"
+                        title="SAN Storage (Fiber Orange SAN, Aqua Uplink, Amber LAN)"
+                      >
+                        SAN Storage
+                      </button>
+                      <button
+                        onClick={() => handleApplyCablePreset('high_contrast')}
+                        className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-rose-300 text-[11px] font-medium transition"
+                        title="High-Contrast Audit (Polar White, Vivid Yellow, Cyan, Crimson)"
+                      >
+                        High-Contrast
+                      </button>
+                    </div>
+
+                    {/* 3D Velcro Cable Combs Toggle */}
+                    <button
+                      onClick={() => {
+                        sounds.playLatchClick();
+                        setShowCableCombs(!showCableCombs);
+                        showToast(!showCableCombs ? 'Added 3D velcro cable management combs along cable runs.' : 'Removed velcro cable combs.');
+                      }}
+                      className={`px-2.5 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition ${
+                        showCableCombs
+                          ? 'bg-cyan-950/80 text-cyan-300 border-cyan-600 shadow-sm shadow-cyan-600/30'
+                          : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-slate-200'
+                      }`}
+                      title="Toggle 3D velcro cable management grouping combs along spans"
+                    >
+                      <Sliders className="w-3.5 h-3.5" />
+                      <span>{showCableCombs ? 'Velcro Combs: On' : 'Velcro Combs: Off'}</span>
+                    </button>
+
                     {/* TIA-606-C Standards Auto-Color */}
                     <button
                       onClick={handleApplyTiaStandards}
                       className="px-3 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-semibold text-xs flex items-center gap-1.5 shadow-lg shadow-cyan-600/20 transition"
                     >
                       <Radio className="w-3.5 h-3.5" />
-                      <span>TIA-606-C Standards Auto-Color</span>
+                      <span>TIA-606-C</span>
                     </button>
 
                     {/* Apply Active Color to All Cables */}
@@ -2555,7 +2963,7 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
                       className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium flex items-center gap-1.5 transition"
                     >
                       <Sparkles className="w-3 h-3 text-amber-400" />
-                      <span>Color All Cables</span>
+                      <span>Color All</span>
                     </button>
 
                     {/* Cable Sag / Droop Slider */}
@@ -2711,6 +3119,12 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
                     Rack B (SAN & Secondary)
                   </button>
                   <button
+                    onClick={() => setCameraPreset('rear')}
+                    className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-amber-600/30 hover:text-amber-300 text-slate-300 transition"
+                  >
+                    Rear Servicing (PSUs & I/O)
+                  </button>
+                  <button
                     onClick={() => setCameraPreset('kvm')}
                     className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-purple-600/30 hover:text-purple-300 text-slate-300 transition"
                   >
@@ -2745,7 +3159,7 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
 
       {/* Floating Instructions Pill */}
       <div className="absolute bottom-4 left-4 z-10 hidden md:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900/80 border border-slate-800 text-[11px] text-slate-400">
-        <span>Click ports to cable • Click cables to recolor • Click chassis to extend rails • Click drive trays to eject</span>
+        <span>Click ports to cable • Click cables to style • Extend rails • Eject SAS drives & dual PSUs • Press &apos;H&apos; for hints</span>
       </div>
 
       {/* Interactive Toast Notifications */}
