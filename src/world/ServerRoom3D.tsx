@@ -898,7 +898,14 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
     socFrame.position.set(0, 2.4, -3.08);
     scene.add(socFrame);
 
-    const socScreen = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 1.8), new THREE.MeshBasicMaterial({ color: 0x0284c7 }));
+    const socScreen = new THREE.Mesh(
+      new THREE.PlaneGeometry(3.6, 1.8),
+      new THREE.MeshBasicMaterial({
+        map: terminalBackdrop,
+        color: 0xffffff,
+        toneMapped: false,
+      })
+    );
     socScreen.position.set(0, 2.4, -3.02);
     scene.add(socScreen);
 
