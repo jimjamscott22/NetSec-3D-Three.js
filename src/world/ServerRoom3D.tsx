@@ -503,6 +503,7 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
   // UI Dock state
   const [isDockCollapsed, setIsDockCollapsed] = useState(false);
   const [activeDockTab, setActiveDockTab] = useState<'cables' | 'chassis' | 'catalog' | 'cameras'>('chassis');
+  const [cameraStyle, setCameraStyle] = useState<'orbit' | 'firstPerson' | 'thirdPerson'>('orbit');
   const [areEquipmentLabelsVisible, setAreEquipmentLabelsVisible] = useState(false);
   const equipmentLabelsVisibleRef = useRef(false);
   const equipmentLabelTargetsRef = useRef<Map<string, EquipmentLabelTarget>>(new Map());
@@ -549,9 +550,30 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
     }, 3500);
   }, []);
 
+  const setViewingStyle = (style: 'orbit' | 'firstPerson' | 'thirdPerson') => {
+    sounds.playKeyClick();
+    setCameraStyle(style);
+    if (liveRef.current) liveRef.current.cameraStyle = style;
+
+    if (style === 'orbit') {
+      cameraTargetRef.current = {
+        pos: new THREE.Vector3(0, 3.6, 5.5),
+        lookAt: new THREE.Vector3(0, 1.2, 0),
+      };
+      showToast('Orbit view enabled. Drag to rotate and scroll to zoom.');
+    } else if (style === 'firstPerson') {
+      showToast('First-person view enabled. Use WASD or arrow keys to move and drag to look.');
+    } else {
+      showToast('Third-person view enabled. Move with WASD or arrow keys; drag to look around.');
+    }
+  };
+
   // Camera view preset handler
   const setCameraPreset = (preset: 'overview' | 'rack_a' | 'rack_b' | 'rear' | 'kvm' | 'desk_1' | 'desk_2' | 'soc') => {
     sounds.playKeyClick();
+    setCameraStyle('orbit');
+    if (liveRef.current) liveRef.current.cameraStyle = 'orbit';
+
     if (preset === 'overview') {
       cameraTargetRef.current = {
         pos: new THREE.Vector3(0, 3.6, 5.5),
@@ -944,6 +966,52 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     container.appendChild(renderer.domElement);
     rendererRef.current = renderer;
+
+    // Shared player rig for first-person and over-the-shoulder exploration.
+    const playerPosition = new THREE.Vector3(1.1, 0, 2.2);
+    let playerYaw = 0;
+    let playerPitch = -0.08;
+    let thirdPersonDistance = 2.35;
+    const pressedKeys = new Set<string>();
+    const playerAvatar = new THREE.Group();
+    playerAvatar.position.copy(playerPosition);
+    playerAvatar.visible = false;
+
+    const suitMaterial = new THREE.MeshStandardMaterial({ color: 0x172033, roughness: 0.72, metalness: 0.18 });
+    const accentMaterial = new THREE.MeshStandardMaterial({
+      color: 0x22d3ee,
+      emissive: 0x0e7490,
+      emissiveIntensity: 0.75,
+      roughness: 0.35,
+    });
+    const skinMaterial = new THREE.MeshStandardMaterial({ color: 0xd6a47b, roughness: 0.88 });
+
+    const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.24, 0.58, 6, 12), suitMaterial);
+    torso.position.y = 1.05;
+    torso.castShadow = true;
+    playerAvatar.add(torso);
+
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.19, 18, 14), skinMaterial);
+    head.position.y = 1.68;
+    head.castShadow = true;
+    playerAvatar.add(head);
+
+    for (const x of [-0.12, 0.12]) {
+      const leg = new THREE.Mesh(new THREE.CapsuleGeometry(0.075, 0.55, 4, 8), suitMaterial);
+      leg.position.set(x, 0.42, 0);
+      leg.castShadow = true;
+      playerAvatar.add(leg);
+    }
+
+    const backpack = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.46, 0.14), suitMaterial);
+    backpack.position.set(0, 1.08, 0.2);
+    backpack.castShadow = true;
+    playerAvatar.add(backpack);
+
+    const statusStrip = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.035, 0.018), accentMaterial);
+    statusStrip.position.set(0, 1.17, 0.278);
+    playerAvatar.add(statusStrip);
+    scene.add(playerAvatar);
 
     // Lighting Rig (Key, Fill, Rim)
     const ambientLight = new THREE.AmbientLight(0x2a3648, 1.6);
@@ -1843,7 +1911,7 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
     container.addEventListener('mousemove', handleMouseMove);
     container.addEventListener('click', handleClick);
 
-    // Mouse drag for smooth orbit rotation
+    // Mouse drag rotates the active view: orbit camera, first person, or third person.
     let isDragging = false;
     let prevMouseX = 0;
     let prevMouseY = 0;
@@ -1870,48 +1938,130 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
       prevMouseX = e.clientX;
       prevMouseY = e.clientY;
 
-      const target = cameraTargetRef.current;
-      const offset = target.pos.clone().sub(target.lookAt);
-      const spherical = new THREE.Spherical().setFromVector3(offset);
+      const activeCameraStyle = liveRef.current?.cameraStyle ?? 'orbit';
+      if (activeCameraStyle === 'orbit') {
+        const target = cameraTargetRef.current;
+        const offset = target.pos.clone().sub(target.lookAt);
+        const spherical = new THREE.Spherical().setFromVector3(offset);
 
-      spherical.theta -= deltaX * 0.0055;
-      spherical.phi = Math.max(0.08, Math.min(Math.PI / 2 - 0.04, spherical.phi - deltaY * 0.0055));
+        spherical.theta -= deltaX * 0.0055;
+        spherical.phi = Math.max(0.08, Math.min(Math.PI / 2 - 0.04, spherical.phi - deltaY * 0.0055));
 
-      offset.setFromSpherical(spherical);
-      target.pos.copy(target.lookAt).add(offset);
+        offset.setFromSpherical(spherical);
+        target.pos.copy(target.lookAt).add(offset);
+      } else {
+        playerYaw -= deltaX * 0.0045;
+        playerPitch = THREE.MathUtils.clamp(playerPitch - deltaY * 0.0035, -0.72, 0.65);
+      }
     };
 
     const handleWheel = (e: WheelEvent) => {
       e.preventDefault();
-      const target = cameraTargetRef.current;
-      const dir = target.pos.clone().sub(target.lookAt).normalize();
-      const dist = target.pos.distanceTo(target.lookAt);
-      const newDist = Math.max(1.1, Math.min(9.5, dist + e.deltaY * 0.0045));
-      target.pos.copy(target.lookAt).add(dir.multiplyScalar(newDist));
+      const activeCameraStyle = liveRef.current?.cameraStyle ?? 'orbit';
+      if (activeCameraStyle === 'orbit') {
+        const target = cameraTargetRef.current;
+        const dir = target.pos.clone().sub(target.lookAt).normalize();
+        const dist = target.pos.distanceTo(target.lookAt);
+        const newDist = Math.max(1.1, Math.min(9.5, dist + e.deltaY * 0.0045));
+        target.pos.copy(target.lookAt).add(dir.multiplyScalar(newDist));
+      } else if (activeCameraStyle === 'thirdPerson') {
+        thirdPersonDistance = THREE.MathUtils.clamp(thirdPersonDistance + e.deltaY * 0.0025, 1.5, 3.8);
+      }
     };
+
+    const isTypingTarget = (target: EventTarget | null) => {
+      const element = target as HTMLElement | null;
+      return !!element && (element.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON'].includes(element.tagName));
+    };
+
+    const movementKeys = new Set(['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'shift']);
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (isTypingTarget(e.target) || (liveRef.current?.cameraStyle ?? 'orbit') === 'orbit') return;
+      const key = e.key.toLowerCase();
+      if (movementKeys.has(key)) {
+        e.preventDefault();
+        pressedKeys.add(key);
+      }
+    };
+    const handleKeyUp = (e: KeyboardEvent) => {
+      pressedKeys.delete(e.key.toLowerCase());
+    };
+    const handleWindowBlur = () => pressedKeys.clear();
 
     container.addEventListener('mousedown', handleMouseDown);
     window.addEventListener('mouseup', handleMouseUp);
     container.addEventListener('mousemove', handleMouseDrag);
     container.addEventListener('wheel', handleWheel, { passive: false });
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('blur', handleWindowBlur);
 
     // Animation & Kinematics Loop
     let animId: number;
-    let clock = new THREE.Clock();
+    const clock = new THREE.Clock();
 
     const animate = () => {
       animId = requestAnimationFrame(animate);
-      const delta = clock.getDelta();
+      const delta = Math.min(clock.getDelta(), 0.05);
+      const activeCameraStyle = liveRef.current?.cameraStyle ?? 'orbit';
 
-      // Camera smooth damping
+      if (activeCameraStyle !== 'orbit') {
+        const forwardInput = Number(pressedKeys.has('w') || pressedKeys.has('arrowup')) - Number(pressedKeys.has('s') || pressedKeys.has('arrowdown'));
+        const rightInput = Number(pressedKeys.has('d') || pressedKeys.has('arrowright')) - Number(pressedKeys.has('a') || pressedKeys.has('arrowleft'));
+        const flatForward = new THREE.Vector3(Math.sin(playerYaw), 0, -Math.cos(playerYaw));
+        const flatRight = new THREE.Vector3(Math.cos(playerYaw), 0, Math.sin(playerYaw));
+        const movement = flatForward.multiplyScalar(forwardInput).add(flatRight.multiplyScalar(rightInput));
+
+        if (movement.lengthSq() > 0) {
+          const speed = pressedKeys.has('shift') ? 3.4 : 2.15;
+          movement.normalize().multiplyScalar(speed * delta);
+          playerPosition.add(movement);
+          playerPosition.x = THREE.MathUtils.clamp(playerPosition.x, -4.45, 4.45);
+          playerPosition.z = THREE.MathUtils.clamp(playerPosition.z, -2.7, 4.4);
+        }
+      }
+
+      playerAvatar.position.copy(playerPosition);
+      playerAvatar.rotation.y = -playerYaw;
+      playerAvatar.visible = activeCameraStyle === 'thirdPerson';
+
       if (cameraRef.current) {
         const cam = cameraRef.current;
-        const target = cameraTargetRef.current;
-        cam.position.lerp(target.pos, 0.08);
+        const desiredFov = activeCameraStyle === 'firstPerson' ? 68 : activeCameraStyle === 'thirdPerson' ? 52 : 46;
+        if (Math.abs(cam.fov - desiredFov) > 0.01) {
+          cam.fov = THREE.MathUtils.damp(cam.fov, desiredFov, 9, delta);
+          cam.updateProjectionMatrix();
+        }
 
-        const currentLookAt = new THREE.Vector3(0, 0, -1).applyQuaternion(cam.quaternion).add(cam.position);
-        currentLookAt.lerp(target.lookAt, 0.08);
-        cam.lookAt(currentLookAt);
+        if (activeCameraStyle === 'orbit') {
+          const target = cameraTargetRef.current;
+          cam.position.lerp(target.pos, 1 - Math.exp(-5 * delta));
+          const currentLookAt = new THREE.Vector3(0, 0, -1).applyQuaternion(cam.quaternion).add(cam.position);
+          currentLookAt.lerp(target.lookAt, 1 - Math.exp(-5 * delta));
+          cam.lookAt(currentLookAt);
+        } else {
+          const cosPitch = Math.cos(playerPitch);
+          const lookDirection = new THREE.Vector3(
+            Math.sin(playerYaw) * cosPitch,
+            Math.sin(playerPitch),
+            -Math.cos(playerYaw) * cosPitch
+          ).normalize();
+          const eyePosition = playerPosition.clone().add(new THREE.Vector3(0, 1.62, 0));
+
+          if (activeCameraStyle === 'firstPerson') {
+            cam.position.lerp(eyePosition, 1 - Math.exp(-16 * delta));
+            cam.lookAt(eyePosition.clone().add(lookDirection));
+          } else {
+            const horizontalForward = new THREE.Vector3(Math.sin(playerYaw), 0, -Math.cos(playerYaw));
+            const desiredPosition = playerPosition
+              .clone()
+              .addScaledVector(horizontalForward, -thirdPersonDistance)
+              .add(new THREE.Vector3(0, 1.78, 0));
+            const desiredLookAt = playerPosition.clone().add(new THREE.Vector3(0, 1.25, 0)).addScaledVector(lookDirection, 1.15);
+            cam.position.lerp(desiredPosition, 1 - Math.exp(-10 * delta));
+            cam.lookAt(desiredLookAt);
+          }
+        }
       }
 
       // Signal photon pulses travelling along network cables
@@ -2117,6 +2267,9 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
       window.removeEventListener('mouseup', handleMouseUp);
       container.removeEventListener('mousemove', handleMouseDrag);
       container.removeEventListener('wheel', handleWheel);
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('blur', handleWindowBlur);
 
       if (container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);
@@ -2202,8 +2355,9 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
   };
 
   liveRef.current = {
-    slidOutUnitIds,
-    ejectedDrives,
+  cameraStyle,
+  slidOutUnitIds,
+  ejectedDrives,
     ejectedPsus,
     lidOpenUnits,
     powerOffUnits,
@@ -2248,6 +2402,20 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
     <div className="relative w-full h-full select-none overflow-hidden bg-slate-950 font-sans">
       {/* 3D WebGL Canvas */}
       <div ref={mountRef} className="w-full h-full" />
+
+      {cameraStyle !== 'orbit' && (
+        <>
+          <div className="pointer-events-none absolute left-1/2 top-1/2 z-[9] h-4 w-4 -translate-x-1/2 -translate-y-1/2" aria-hidden="true">
+            <span className="absolute left-1/2 top-0 h-1.5 w-px -translate-x-1/2 bg-cyan-200/80" />
+            <span className="absolute bottom-0 left-1/2 h-1.5 w-px -translate-x-1/2 bg-cyan-200/80" />
+            <span className="absolute left-0 top-1/2 h-px w-1.5 -translate-y-1/2 bg-cyan-200/80" />
+            <span className="absolute right-0 top-1/2 h-px w-1.5 -translate-y-1/2 bg-cyan-200/80" />
+          </div>
+          <div className="pointer-events-none absolute left-1/2 top-4 z-20 -translate-x-1/2 rounded-full border border-cyan-500/40 bg-slate-950/80 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-200 shadow-lg backdrop-blur-md">
+            {cameraStyle === 'firstPerson' ? 'First person' : 'Third person'}
+          </div>
+        </>
+      )}
 
       <div className="pointer-events-none absolute inset-0 z-[8] overflow-hidden" aria-hidden={!areEquipmentLabelsVisible}>
         {equipmentLabels.map((label) => (
@@ -2497,7 +2665,9 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
               </div>
 
               <div className="text-[11px] text-slate-500 font-mono hidden md:block">
-                Click chassis/ports/cables to interact • Drag to orbit • Scroll to zoom
+                {cameraStyle === 'orbit'
+                  ? 'Click objects to interact • Drag to orbit • Scroll to zoom'
+                  : 'WASD / Arrows to move • Drag to look • Shift to move faster'}
               </div>
             </div>
 
@@ -3097,59 +3267,96 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
 
             {/* TAB CONTENT 4: CAMERA ANGLES */}
             {activeDockTab === 'cameras' && (
-              <div className="p-4 flex items-center justify-between gap-2 flex-wrap text-xs">
-                <span className="text-slate-400 text-xs font-semibold">Camera Positions:</span>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <button
-                    onClick={() => setCameraPreset('overview')}
-                    className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-emerald-600/30 hover:text-emerald-300 text-slate-300 transition"
-                  >
-                    Full Room Overview
-                  </button>
-                  <button
-                    onClick={() => setCameraPreset('rack_a')}
-                    className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-cyan-600/30 hover:text-cyan-300 text-slate-300 transition"
-                  >
-                    Rack A (Production Gear)
-                  </button>
-                  <button
-                    onClick={() => setCameraPreset('rack_b')}
-                    className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-cyan-600/30 hover:text-cyan-300 text-slate-300 transition"
-                  >
-                    Rack B (SAN & Secondary)
-                  </button>
-                  <button
-                    onClick={() => setCameraPreset('rear')}
-                    className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-amber-600/30 hover:text-amber-300 text-slate-300 transition"
-                  >
-                    Rear Servicing (PSUs & I/O)
-                  </button>
-                  <button
-                    onClick={() => setCameraPreset('kvm')}
-                    className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-purple-600/30 hover:text-purple-300 text-slate-300 transition"
-                  >
-                    KVM Console Drawer
-                  </button>
-                  <button
-                    onClick={() => setCameraPreset('desk_1')}
-                    className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-emerald-600/30 hover:text-emerald-300 text-slate-300 transition"
-                  >
-                    Desk 1 (PC-A / SOC)
-                  </button>
-                  {sim.devices.has('PC-B') && (
+              <div className="flex flex-col gap-3 p-4 text-xs">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
+                  <div>
+                    <div className="font-bold text-white">Viewing style</div>
+                    <div className="mt-0.5 text-[11px] text-slate-400">Choose a studio camera or walk through the server room.</div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Viewing style">
+                    {([
+                      ['orbit', 'Orbit / Studio'],
+                      ['firstPerson', 'First Person'],
+                      ['thirdPerson', 'Third Person'],
+                    ] as const).map(([style, label]) => (
+                      <button
+                        key={style}
+                        type="button"
+                        onClick={() => setViewingStyle(style)}
+                        aria-pressed={cameraStyle === style}
+                        className={`min-h-9 rounded-lg border px-3 py-1.5 font-semibold transition ${
+                          cameraStyle === style
+                            ? 'border-cyan-400/70 bg-cyan-500/20 text-cyan-200'
+                            : 'border-slate-700 bg-slate-800 text-slate-300 hover:border-slate-500 hover:text-white'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {cameraStyle !== 'orbit' && (
+                  <div className="rounded-lg border border-cyan-900/70 bg-cyan-950/30 px-3 py-2 font-mono text-[11px] text-cyan-200">
+                    WASD / Arrow keys: move • Drag: look • Shift: move faster
+                    {cameraStyle === 'thirdPerson' ? ' • Scroll: camera distance' : ''}
+                  </div>
+                )}
+
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-semibold text-slate-400">Orbit camera positions:</span>
+                  <div className="flex flex-wrap items-center gap-2">
                     <button
-                      onClick={() => setCameraPreset('desk_2')}
-                      className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-amber-600/30 hover:text-amber-300 text-slate-300 transition"
+                      onClick={() => setCameraPreset('overview')}
+                      className="rounded-lg bg-slate-800 px-3 py-1.5 text-slate-300 transition hover:bg-emerald-600/30 hover:text-emerald-300"
                     >
-                      Desk 2 (Sales PC-B)
+                      Full Room Overview
                     </button>
-                  )}
-                  <button
-                    onClick={() => setCameraPreset('soc')}
-                    className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-sky-600/30 hover:text-sky-300 text-slate-300 transition"
-                  >
-                    Wall SOC Monitor
-                  </button>
+                    <button
+                      onClick={() => setCameraPreset('rack_a')}
+                      className="rounded-lg bg-slate-800 px-3 py-1.5 text-slate-300 transition hover:bg-cyan-600/30 hover:text-cyan-300"
+                    >
+                      Rack A
+                    </button>
+                    <button
+                      onClick={() => setCameraPreset('rack_b')}
+                      className="rounded-lg bg-slate-800 px-3 py-1.5 text-slate-300 transition hover:bg-cyan-600/30 hover:text-cyan-300"
+                    >
+                      Rack B
+                    </button>
+                    <button
+                      onClick={() => setCameraPreset('rear')}
+                      className="rounded-lg bg-slate-800 px-3 py-1.5 text-slate-300 transition hover:bg-amber-600/30 hover:text-amber-300"
+                    >
+                      Rear Servicing
+                    </button>
+                    <button
+                      onClick={() => setCameraPreset('kvm')}
+                      className="rounded-lg bg-slate-800 px-3 py-1.5 text-slate-300 transition hover:bg-purple-600/30 hover:text-purple-300"
+                    >
+                      KVM Console
+                    </button>
+                    <button
+                      onClick={() => setCameraPreset('desk_1')}
+                      className="rounded-lg bg-slate-800 px-3 py-1.5 text-slate-300 transition hover:bg-emerald-600/30 hover:text-emerald-300"
+                    >
+                      Desk 1
+                    </button>
+                    {sim.devices.has('PC-B') && (
+                      <button
+                        onClick={() => setCameraPreset('desk_2')}
+                        className="rounded-lg bg-slate-800 px-3 py-1.5 text-slate-300 transition hover:bg-amber-600/30 hover:text-amber-300"
+                      >
+                        Desk 2
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setCameraPreset('soc')}
+                      className="rounded-lg bg-slate-800 px-3 py-1.5 text-slate-300 transition hover:bg-sky-600/30 hover:text-sky-300"
+                    >
+                      Wall SOC Monitor
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -3159,7 +3366,11 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
 
       {/* Floating Instructions Pill */}
       <div className="absolute bottom-4 left-4 z-10 hidden md:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900/80 border border-slate-800 text-[11px] text-slate-400">
-        <span>Click ports to cable • Click cables to style • Extend rails • Eject SAS drives & dual PSUs • Press &apos;H&apos; for hints</span>
+        <span>
+          {cameraStyle === 'orbit'
+            ? 'Click ports to cable • Click cables to style • Extend rails • Press H for hints'
+            : 'WASD / Arrow keys to move • Drag to look • Open Camera Angles to change view'}
+        </span>
       </div>
 
       {/* Interactive Toast Notifications */}
