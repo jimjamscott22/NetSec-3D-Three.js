@@ -12,6 +12,8 @@ import {
   DebriefView,
   DeviceType,
   FailReason,
+  SimSnapshot,
+  DeviceSnapshot,
 } from '../types';
 import { ConnectivityResolver } from '../net/resolver';
 import { CliSession } from '../cli/session';
@@ -567,5 +569,142 @@ export class NetworkSim {
       objectives: states,
       reportAnswers: reportAnswersOut,
     };
+  }
+
+  exportSnapshot(): SimSnapshot {
+    if (!this.currentScenario) {
+      throw new Error('Cannot export snapshot without an active scenario.');
+    }
+
+    const devices: DeviceSnapshot[] = Array.from(this.devices.values()).map((dev) => ({
+      id: dev.id,
+      hostname: dev.hostname,
+      ip: dev.ip,
+      mask: dev.mask,
+      gateway: dev.gateway,
+      locked: dev.locked,
+      enableSecret: dev.enableSecret,
+      users: Array.from(dev.users.entries()),
+      domainName: dev.domainName,
+      hasRsaKey: dev.hasRsaKey,
+      vlans: Array.from(dev.vlans.entries()),
+      routes: JSON.parse(JSON.stringify(dev.routes)),
+      natRules: JSON.parse(JSON.stringify(dev.natRules)),
+      acls: JSON.parse(JSON.stringify(dev.acls)),
+      ipRouting: dev.ipRouting,
+      interfaces: Array.from(dev.interfaces.entries()).map(([k, v]) => [k, JSON.parse(JSON.stringify(v))]),
+      files: Array.from(dev.files.entries()),
+      vulns: JSON.parse(JSON.stringify(dev.vulns)),
+      patchRevs: Array.from(dev.patchRevs.entries()),
+    }));
+
+    const cliSessions = Array.from(this.sessions.entries()).map(([deviceId, sess]) => ({
+      deviceId,
+      mode: sess.mode,
+      currentInterface: sess.currentInterface,
+      currentVlan: sess.currentVlan,
+      history: [...sess.history],
+    }));
+
+    return {
+      version: 1,
+      scenarioId: this.currentScenario.id,
+      spareCablesCount: this.spareCablesCount,
+      links: JSON.parse(JSON.stringify(this.links)),
+      devices,
+      reportStates: Array.from(this.reportStates.entries()).map(([k, v]) => [k, JSON.parse(JSON.stringify(v))]),
+      httpLogs: JSON.parse(JSON.stringify(this.httpLogs)),
+      playerPings: JSON.parse(JSON.stringify(this.playerPings)),
+      missionCompleteNotified: this.missionCompleteNotified,
+      cliSessions,
+    };
+  }
+
+  importSnapshot(snapshot: SimSnapshot, scenario: ScenarioDef): { ok: boolean; errors: string[] } {
+    if (!snapshot || snapshot.version !== 1 || snapshot.scenarioId !== scenario.id) {
+      return { ok: false, errors: ['Snapshot does not match target scenario.'] };
+    }
+
+    // 1. Initialize baseline scenario objects cleanly
+    this.loadScenario(scenario);
+
+    // 2. Restore links & spare cable count
+    this.links = [];
+    for (const dev of this.devices.values()) {
+      for (const iface of dev.interfaces.values()) {
+        iface.peer = null;
+      }
+    }
+
+    // 3. Restore device configurations, interfaces, files, vulns
+    for (const devSnap of snapshot.devices || []) {
+      const dev = this.devices.get(devSnap.id);
+      if (!dev) continue;
+
+      dev.hostname = devSnap.hostname;
+      dev.ip = devSnap.ip;
+      dev.mask = devSnap.mask;
+      dev.gateway = devSnap.gateway;
+      dev.locked = devSnap.locked;
+      dev.enableSecret = devSnap.enableSecret || '';
+      dev.users = new Map(devSnap.users || []);
+      dev.domainName = devSnap.domainName || '';
+      dev.hasRsaKey = Boolean(devSnap.hasRsaKey);
+      dev.vlans = new Map(devSnap.vlans || []);
+      dev.routes = JSON.parse(JSON.stringify(devSnap.routes || []));
+      dev.natRules = JSON.parse(JSON.stringify(devSnap.natRules || []));
+      dev.acls = JSON.parse(JSON.stringify(devSnap.acls || []));
+      dev.ipRouting = devSnap.ipRouting !== undefined ? devSnap.ipRouting : true;
+
+      if (Array.isArray(devSnap.interfaces)) {
+        dev.interfaces.clear();
+        for (const [ifKey, ifState] of devSnap.interfaces) {
+          dev.interfaces.set(ifKey, JSON.parse(JSON.stringify(ifState)));
+        }
+      }
+
+      if (Array.isArray(devSnap.files)) {
+        dev.files = new Map(devSnap.files);
+      }
+      if (Array.isArray(devSnap.vulns)) {
+        dev.vulns = JSON.parse(JSON.stringify(devSnap.vulns));
+      }
+      if (Array.isArray(devSnap.patchRevs)) {
+        dev.patchRevs = new Map(devSnap.patchRevs);
+      }
+    }
+
+    // 4. Re-apply saved links (overwriting peers cleanly)
+    for (const link of snapshot.links || []) {
+      this.applyLink(link.a, link.b, link.locked ?? false);
+    }
+    this.spareCablesCount = snapshot.spareCablesCount;
+
+    // 5. Restore reports, HTTP logs, player pings, and notification flag
+    if (Array.isArray(snapshot.reportStates)) {
+      this.reportStates = new Map(
+        snapshot.reportStates.map(([k, v]) => [k, JSON.parse(JSON.stringify(v))])
+      );
+    }
+    this.httpLogs = JSON.parse(JSON.stringify(snapshot.httpLogs || []));
+    this.playerPings = JSON.parse(JSON.stringify(snapshot.playerPings || []));
+    this.missionCompleteNotified = Boolean(snapshot.missionCompleteNotified);
+
+    // 6. Restore CLI sessions (mode, sub-context, and command history)
+    this.sessions.clear();
+    for (const sessSnap of snapshot.cliSessions || []) {
+      if (!this.devices.has(sessSnap.deviceId)) continue;
+      const sess = this.openSession(sessSnap.deviceId);
+      sess.mode = sessSnap.mode;
+      sess.currentInterface = sessSnap.currentInterface;
+      sess.currentVlan = sessSnap.currentVlan;
+      sess.history = [...(sessSnap.history || [])];
+      sess.historyIndex = sess.history.length;
+    }
+
+    this.resolver.refreshAllOperStatuses();
+    this.notifyObjectives();
+
+    return { ok: true, errors: [] };
   }
 }

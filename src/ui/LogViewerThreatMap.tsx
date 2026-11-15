@@ -31,13 +31,26 @@ export const LogViewerThreatMap: React.FC<LogViewerThreatMapProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedGeoFilter, setSelectedGeoFilter] = useState<string | null>(null);
 
-  // Report Form State
-  const [reportInputs, setReportInputs] = useState<Record<string, string>>({
-    attacker_ip: '',
-    attack_type: 'Brute force',
-    compromised_user: '',
+  // Report Form State (hydrated from sim.reportStates when resuming saved sessions)
+  const [reportInputs, setReportInputs] = useState<Record<string, string>>(() => ({
+    attacker_ip: sim.reportStates.get('attacker_ip')?.lastValue || '',
+    attack_type: sim.reportStates.get('attack_type')?.lastValue || 'Brute force',
+    compromised_user: sim.reportStates.get('compromised_user')?.lastValue || '',
+  }));
+  const [submissionFeedback, setSubmissionFeedback] = useState<Record<string, { correct: boolean; msg: string }>>(() => {
+    const initial: Record<string, { correct: boolean; msg: string }> = {};
+    for (const [id, st] of sim.reportStates.entries()) {
+      if (st.solved) {
+        initial[id] = { correct: true, msg: 'Verified Correct!' };
+      } else if (st.lastValue) {
+        initial[id] = {
+          correct: false,
+          msg: `Incorrect answer. ${st.attemptsLeft} attempts remaining.`,
+        };
+      }
+    }
+    return initial;
   });
-  const [submissionFeedback, setSubmissionFeedback] = useState<Record<string, { correct: boolean; msg: string }>>({});
 
   const scenario = sim.currentScenario;
   const logEntries = scenario?.logs || [];

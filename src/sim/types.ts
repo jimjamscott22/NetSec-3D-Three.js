@@ -269,3 +269,61 @@ export interface DebriefView {
   reportAnswers?: Record<string, { answer: string; evidence: Array<{ source: string; file: string; line: number; text: string }> }>;
   vulnPatches?: Array<{ vulnId: string; startingText: string; currentText: string; accepted: boolean }>;
 }
+
+export interface TerminalTranscriptLine {
+  type: 'input' | 'output' | 'system';
+  text: string;
+  prompt?: string;
+}
+
+export interface DeviceSnapshot {
+  id: string;
+  hostname: string;
+  ip: string | null;
+  mask: string | null;
+  gateway: string | null;
+  locked: boolean;
+  enableSecret: string;
+  users: Array<[string, string]>;
+  domainName: string;
+  hasRsaKey: boolean;
+  vlans: Array<[number, string]>;
+  routes: StaticRoute[];
+  natRules: NatRule[];
+  acls: AclRule[];
+  ipRouting: boolean;
+  interfaces: Array<[string, InterfaceState]>;
+  files: Array<[string, string]>;
+  vulns: VulnDefinition[];
+  patchRevs: Array<[string, number]>;
+}
+
+export interface CliSessionSnapshot {
+  deviceId: string;
+  mode: CliMode;
+  currentInterface: string | null;
+  currentVlan: number | null;
+  history: string[];
+}
+
+export interface SimSnapshot {
+  version: 1;
+  scenarioId: string;
+  spareCablesCount: number;
+  links: Link[];
+  devices: DeviceSnapshot[];
+  reportStates: Array<[string, ReportFieldState]>;
+  httpLogs: Array<{
+    srcId: string;
+    dstDevice: string;
+    vulnId: string;
+    patchRev: number;
+    outcome: HttpOutcome;
+  }>;
+  playerPings: Array<{ srcId: string; dstIp: string; success: boolean }>;
+  missionCompleteNotified: boolean;
+  cliSessions: CliSessionSnapshot[];
+  activeTerminalDevice?: string | null;
+  terminalTranscripts?: Record<string, TerminalTranscriptLine[]>;
+}
+

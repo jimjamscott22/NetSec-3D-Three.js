@@ -26,3 +26,10 @@ mono_crash.*.json
 
 #npm_modules/
 node_modules/
+
+# SQLite local database files
+data/
+*.db
+*.db-wal
+*.db-shm
+

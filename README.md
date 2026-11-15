@@ -2,7 +2,7 @@
 
 A browser-based 3D networking and security simulator built with Three.js, React, and TypeScript. Fix broken networks and insecure servers in an interactive server room through a Cisco IOS-style terminal, across four missions: orientation, VLAN connectivity, log triage, and web patching. Built to teach CCNA-level networking concepts and introductory security investigation hands-on.
 
-All devices, packets, logs, HTTP responses, and code patches are simulated in the browser. No physical networking equipment, backend service, database, or PHP runtime is required.
+All devices, packets, logs, HTTP responses, and code patches are simulated locally, with full session snapshots and campaign progress persisted to a local SQLite database (`data/netsec.db`) via a lightweight Express backend. No physical networking equipment or external database server is required.
 
 <p align="center">
   <a href="dist\terminal-command-wall.png"
@@ -78,7 +78,12 @@ npm run dev -- --port 3001
 
 ### Configuration
 
-No environment variables, API keys, or account setup are required. [.env.example](.env.example) contains a `VITE_APP_TITLE` example, but the current UI does not read that variable; copying it to `.env` is unnecessary.
+Optional environment variables are documented in [.env.example](.env.example):
+
+- `PORT`: HTTP port for the Express + Vite server (default `3000`).
+- `NETSEC_DB_PATH`: Path to the SQLite database file (default `./data/netsec.db`).
+
+No API keys or external accounts are required. Copying `.env.example` to `.env` is optional.
 
 ## How to play
 
@@ -129,11 +134,13 @@ Commands are entered inside the simulator's terminal. Their availability depends
 
 The terminal includes a cheatsheet, and mission guidance supplies the commands needed for each objective. This is a limited teaching command set rather than a complete Cisco IOS or operating-system shell.
 
-### Saved progress
+### Saved sessions and progress (SQLite)
 
-Completed mission IDs are saved in browser `localStorage` under `netsec_completed_missions`. They are local to that browser profile and site origin; changing the hostname or port uses separate storage.
+Session snapshots and campaign completion history are persisted on disk in SQLite (`data/netsec.db`) using Node.js 22's built-in `node:sqlite` engine:
 
-Active device configuration, cables, report entries, and patches stay in memory. Reloading the page starts at orientation; loading or restarting a mission rebuilds its starting state. Completion badges are retained when browser storage is available. To reset completion history, remove that storage key through the browser's developer tools and reload.
+- **Auto-Save Checkpoint**: Device configurations, cables, router subinterfaces, VLANs, CLI mode/history, terminal transcripts, incident report answers, and code patches auto-save to SQLite as you work and automatically restore on reload.
+- **Session & Progress Vault (`Save` / `Sessions` in top bar)**: Save named checkpoints, resume any saved snapshot, overwrite existing slots, or delete old saves.
+- **Start Again & Keep Progress**: Restarting a mission (from the HUD or Session Vault) resets the active mission's devices and cables while preserving all solved mission badges and saved slots in SQLite. You can also reset campaign history from the Session Vault when desired.
 
 ## Development commands
 
@@ -141,53 +148,47 @@ Run these from the repository root after `npm ci`:
 
 | Command | Purpose |
 | --- | --- |
-| `npm run dev` | Start Vite's development server on port 3000 with hot updates. |
-| `npm run lint` | Run TypeScript checking with `tsc --noEmit`. This script does not run ESLint. |
-| `npm run build` | Bundle the application into `dist/`. |
-| `npm run preview` | Serve the built `dist/` locally, requesting port 3000. Run the build first. |
-
-There is currently no `npm test` script or automated test suite in this checkout. Type checking and production bundling are separate checks; run both before submitting changes.
+| `npm run dev` | Start the Express + Vite + SQLite development server on port 3000 (`tsx server.ts`). |
+| `npm run lint` | Run TypeScript checking with `tsc --noEmit`. |
+| `npm run test` | Run automated Vitest simulation and SQLite persistence tests. |
+| `npm run build` | Bundle the frontend application into `dist/`. |
+| `npm start` | Run the production Express + SQLite server (`node server.ts`) serving `dist/`. |
 
 ## Production build and hosting
 
 ```bash
 npm run lint
+npm test
 npm run build
-npm run preview
+NODE_ENV=production npm start
 ```
 
-Stop the development server first if it is using port 3000. Open the URL printed by the preview command; preview may choose another port if its requested port is occupied.
-
-Deploy the generated **`dist/` directory** to a static web host. Node.js is needed to build the app, but the deployed application runs entirely in the browser. Vite preview is for checking a build locally, not for operating a production server.
-
-The default asset base is `/`. If hosting under a subdirectory, build with the matching base path. For a GitHub Pages project site for this repository:
-
-```bash
-npm run build -- --base=/NetSec-3D-Three.js/
-```
-
-Use the resulting `dist/` output for that deployment. See [Vite 5's static deployment guide](https://github.com/vitejs/vite/blob/v5.4.21/docs/guide/static-deploy.md) for hosting details.
-
-This repository currently tracks `dist/`. A normal build may change those generated files; review them separately from source changes and build fresh output before deploying.
+Stop the development server first if it is using port 3000. The Express server serves the built `dist/` bundle alongside the `/api/progress` and `/api/sessions` SQLite endpoints.
 
 ## Project structure
 
 ```text
+server.ts                  Express server entry point (API + Vite dev / dist static)
+server/
+  db.ts                    SQLite database layer (node:sqlite) for sessions & progress
 src/
   main.tsx                 React entry point
-  App.tsx                  Mission loading, panels, and saved completion state
+  App.tsx                  Mission loading, panels, and SQLite auto-save/restore orchestration
   index.css                Global styles and Tailwind CSS import
+  services/
+    sessionApi.ts          Typed REST client for /api/progress and /api/sessions
   sim/
-    core/network_sim.ts    Simulation facade and state-changing operations
+    core/network_sim.ts    Simulation facade, snapshot export/import, and state operations
     devices/               Device models and interface state
     cli/                   CLI sessions, tokenization, and output formatting
     net/                   IPv4 helpers and connectivity resolution
     scenario/              Mission definitions, objective evaluation, and guidance
     web/                   Code patch matching
-    types.ts               Shared simulation types
-  ui/                      Terminal, objectives, mission catalog, logs, and editor
+    types.ts               Shared simulation and snapshot types
+  ui/                      Terminal, objectives, mission catalog, session vault, logs, and editor
   world/ServerRoom3D.tsx    Three.js scene, camera, equipment, and cabling
   utils/audio.ts           Browser sound effects
+tests/                     Vitest mission and SQLite persistence test suites
 docs/                      Design documents and planning material
 index.html                 HTML entry point
 vite.config.ts             React/Tailwind plugins and development server settings
@@ -233,7 +234,7 @@ Before submitting a change:
 - Network traffic is resolved from simulation state. `ping` and `curl` inside the app do not send traffic to real equipment or websites.
 - Logs and threat-map data are mission fixtures, not live security monitoring or threat intelligence.
 - The patch editor accepts predefined code patterns after normalization. It does not execute PHP or prove that arbitrary replacement code is secure.
-- Only mission completion is persisted; there are no user accounts, cloud saves, or resumable in-progress sessions.
+- Sessions and completed missions are stored locally in the server's SQLite database (`data/netsec.db`); there are no user accounts or multi-tenant authentication.
 - The room includes decorative equipment and visual interactions beyond the mission's simulated devices. Follow objective names and guidance to identify relevant equipment.
 - This is an educational simulator with a limited command set, not a full network emulator or a substitute for hands-on practice with real systems.
 

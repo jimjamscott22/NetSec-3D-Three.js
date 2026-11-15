@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { NetworkSim } from '../sim/core/network_sim';
 import { CliSession } from '../sim/cli/session';
-import { ShellAction, DeviceType } from '../sim/types';
+import { ShellAction, DeviceType, TerminalTranscriptLine } from '../sim/types';
 import { sounds } from '../utils/audio';
 import {
   Terminal as TerminalIcon,
@@ -21,6 +21,9 @@ interface TerminalConsoleProps {
   onClose: () => void;
   onSwitchDevice: (deviceId: string) => void;
   onOpenCodeEditor?: (deviceAndPath: string) => void;
+  transcripts?: Record<string, TerminalTranscriptLine[]>;
+  onUpdateTranscript?: (deviceId: string, lines: TerminalTranscriptLine[]) => void;
+  onCommandExecuted?: () => void;
 }
 
 export const TerminalConsole: React.FC<TerminalConsoleProps> = ({
@@ -29,9 +32,12 @@ export const TerminalConsole: React.FC<TerminalConsoleProps> = ({
   onClose,
   onSwitchDevice,
   onOpenCodeEditor,
+  transcripts,
+  onUpdateTranscript,
+  onCommandExecuted,
 }) => {
   const [session, setSession] = useState<CliSession | null>(null);
-  const [historyLines, setHistoryLines] = useState<Array<{ type: 'input' | 'output' | 'system'; text: string; prompt?: string }>>([]);
+  const [historyLines, setHistoryLines] = useState<TerminalTranscriptLine[]>([]);
   const [inputVal, setInputVal] = useState('');
   const [historyIdx, setHistoryIdx] = useState(-1);
   const [soundEnabled, setSoundEnabled] = useState(true);
@@ -47,21 +53,28 @@ export const TerminalConsole: React.FC<TerminalConsoleProps> = ({
       const sess = sim.openSession(deviceId);
       setSession(sess);
 
-      // Welcome header
-      const dev = sess.device;
-      let header = '';
-      if (dev.type === DeviceType.ROUTER || dev.type === DeviceType.SWITCH) {
-        header = `Cisco IOS Software, C2900 Software (C2900-UNIVERSALK9-M), Version 15.2(4)M5, RELEASE SOFTWARE (fc2)\nTechnical Support: http://www.cisco.com/techsupport\nCompiled Fri 12-Sep-14 17:02 by prod_rel_team\n\nPress RETURN to get started!`;
-      } else if (dev.type === DeviceType.HOST) {
-        header = `Microsoft Windows [Version 10.0.19045.3803]\n(c) Microsoft Corporation. All rights reserved.\nType "help" for available commands.`;
-      } else if (dev.type === DeviceType.SERVER) {
-        header = `Linux ${dev.hostname} 5.15.0-89-generic #99-Ubuntu SMP x86_64\n\nThe programs included with the Ubuntu system are free software.\nType "help" for available commands.`;
-      }
+      const existingTranscript = transcripts?.[deviceId];
+      if (existingTranscript && existingTranscript.length > 0) {
+        setHistoryLines(existingTranscript);
+      } else {
+        // Welcome header
+        const dev = sess.device;
+        let header = '';
+        if (dev.type === DeviceType.ROUTER || dev.type === DeviceType.SWITCH) {
+          header = `Cisco IOS Software, C2900 Software (C2900-UNIVERSALK9-M), Version 15.2(4)M5, RELEASE SOFTWARE (fc2)\nTechnical Support: http://www.cisco.com/techsupport\nCompiled Fri 12-Sep-14 17:02 by prod_rel_team\n\nPress RETURN to get started!`;
+        } else if (dev.type === DeviceType.HOST) {
+          header = `Microsoft Windows [Version 10.0.19045.3803]\n(c) Microsoft Corporation. All rights reserved.\nType "help" for available commands.`;
+        } else if (dev.type === DeviceType.SERVER) {
+          header = `Linux ${dev.hostname} 5.15.0-89-generic #99-Ubuntu SMP x86_64\n\nThe programs included with the Ubuntu system are free software.\nType "help" for available commands.`;
+        }
 
-      setHistoryLines([
-        { type: 'system', text: header },
-        { type: 'output', text: '' },
-      ]);
+        const initialLines: TerminalTranscriptLine[] = [
+          { type: 'system', text: header },
+          { type: 'output', text: '' },
+        ];
+        setHistoryLines(initialLines);
+        onUpdateTranscript?.(deviceId, initialLines);
+      }
       setInputVal('');
       setHistoryIdx(-1);
     } catch (e) {
@@ -98,11 +111,14 @@ export const TerminalConsole: React.FC<TerminalConsoleProps> = ({
       // Config changes and pings can complete objectives; re-evaluate after every command.
       sim.notifyObjectives();
 
-      setHistoryLines((prev) => [
-        ...prev,
+      const nextLines: TerminalTranscriptLine[] = [
+        ...historyLines,
         { type: 'input', text: cmd, prompt: currentPrompt },
         ...(res.output ? [{ type: 'output' as const, text: res.output }] : []),
-      ]);
+      ];
+      setHistoryLines(nextLines);
+      onUpdateTranscript?.(deviceId, nextLines);
+      onCommandExecuted?.();
 
       setInputVal('');
       setHistoryIdx(-1);
@@ -166,11 +182,14 @@ export const TerminalConsole: React.FC<TerminalConsoleProps> = ({
       e.preventDefault();
       const res = session.execute('end');
       sim.notifyObjectives();
-      setHistoryLines((prev) => [
-        ...prev,
+      const nextLines: TerminalTranscriptLine[] = [
+        ...historyLines,
         { type: 'input', text: '^Z', prompt: currentPrompt },
         ...(res.output ? [{ type: 'output' as const, text: res.output }] : []),
-      ]);
+      ];
+      setHistoryLines(nextLines);
+      onUpdateTranscript?.(deviceId, nextLines);
+      onCommandExecuted?.();
       setInputVal('');
       return;
     }

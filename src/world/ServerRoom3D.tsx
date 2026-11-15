@@ -505,6 +505,8 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
   const [activeDockTab, setActiveDockTab] = useState<'cables' | 'chassis' | 'catalog' | 'cameras'>('chassis');
   const [cameraStyle, setCameraStyle] = useState<'orbit' | 'firstPerson' | 'thirdPerson'>('orbit');
   const [areEquipmentLabelsVisible, setAreEquipmentLabelsVisible] = useState(false);
+  const [isDiagnosticMode, setIsDiagnosticMode] = useState(false);
+  const [selectedRack, setSelectedRack] = useState<'Rack A' | 'Rack B'>('Rack A');
   const equipmentLabelsVisibleRef = useRef(false);
   const equipmentLabelTargetsRef = useRef<Map<string, EquipmentLabelTarget>>(new Map());
   const equipmentLabelElementsRef = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -515,6 +517,10 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const portMarkersRef = useRef<PortMarker[]>([]);
   const cableMeshesRef = useRef<Array<{ mesh: THREE.Mesh; linkKey: string; curve: THREE.CatmullRomCurve3 }>>([]);
+  const diagnosticGlowMeshesRef = useRef<THREE.Mesh[]>([]);
+  const diagnosticHaloMaterialsRef = useRef<Array<{ mat: THREE.MeshBasicMaterial; baseOpacity: number; phase: number }>>([]);
+  const rackFrameMeshesRef = useRef<Map<'Rack A' | 'Rack B', THREE.Mesh[]>>(new Map());
+  const rackHighlightGroupsRef = useRef<Map<'Rack A' | 'Rack B', { group: THREE.Group; mats: THREE.MeshBasicMaterial[] }>>(new Map());
   const cableCombsRef = useRef<THREE.Mesh[]>([]);
   const pulseSpheresRef = useRef<Array<{ mesh: THREE.Mesh; curve: THREE.CatmullRomCurve3; progress: number; speed: number }>>([]);
   const unitGroupsRef = useRef<
@@ -580,11 +586,13 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
         lookAt: new THREE.Vector3(0, 1.2, 0),
       };
     } else if (preset === 'rack_a') {
+      setSelectedRack('Rack A');
       cameraTargetRef.current = {
         pos: new THREE.Vector3(-1.1, 1.8, 1.5),
         lookAt: new THREE.Vector3(-1.8, 1.5, 0),
       };
     } else if (preset === 'rack_b') {
+      setSelectedRack('Rack B');
       cameraTargetRef.current = {
         pos: new THREE.Vector3(-1.1, 1.8, -0.1),
         lookAt: new THREE.Vector3(-1.8, 1.5, -1.4),
@@ -692,7 +700,7 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
     const scene = sceneRef.current;
     if (!scene) return;
 
-    // 1. Remove old cable meshes, pulse spheres, and cable combs
+    // 1. Remove old cable meshes, diagnostic neon glow meshes, pulse spheres, and cable combs
     for (const item of cableMeshesRef.current) {
       scene.remove(item.mesh);
       item.mesh.geometry.dispose();
@@ -703,6 +711,18 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
       }
     }
     cableMeshesRef.current = [];
+
+    for (const glowMesh of diagnosticGlowMeshesRef.current) {
+      scene.remove(glowMesh);
+      glowMesh.geometry.dispose();
+      if (Array.isArray(glowMesh.material)) {
+        glowMesh.material.forEach((m) => m.dispose());
+      } else {
+        glowMesh.material.dispose();
+      }
+    }
+    diagnosticGlowMeshesRef.current = [];
+    diagnosticHaloMaterialsRef.current = [];
 
     for (const comb of cableCombsRef.current) {
       scene.remove(comb);
@@ -721,7 +741,16 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
     // Filter clickable meshes to drop previous cables
     clickableMeshesRef.current = clickableMeshesRef.current.filter((c) => c.type !== 'cable');
 
+    // Helper to resolve which rack a device belongs to
+    const getDeviceRack = (devId: string): 'Rack A' | 'Rack B' | null => {
+      const simDev = sim.devices.get(devId);
+      if (simDev?.rack === 'Rack A' || simDev?.rack === 'Rack B') return simDev.rack;
+      const spec = ALL_RACK_UNITS.find((u) => u.id === devId);
+      return spec ? spec.rack : null;
+    };
+
     // 2. Build cables for each active link
+    let pathIndex = 0;
     for (const link of sim.links) {
       const markerA = portMarkersRef.current.find((p) => p.portId === link.a);
       const markerB = portMarkersRef.current.find((p) => p.portId === link.b);
@@ -740,6 +769,15 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
       const revKey = linkKeyOf(link.b, link.a);
       const isSelectedCable = selectedCableKey === linkKey || selectedCableKey === revKey;
 
+      const [devAId, ifAName] = link.a.split(':');
+      const [devBId, ifBName] = link.b.split(':');
+      const rackA = getDeviceRack(devAId);
+      const rackB = getDeviceRack(devBId);
+      const touchesSelectedRack = rackA === selectedRack || rackB === selectedRack;
+      const ifA = sim.devices.get(devAId)?.getInterface(ifAName);
+      const ifB = sim.devices.get(devBId)?.getInterface(ifBName);
+      const isLinkActive = Boolean(ifA?.operUp && ifB?.operUp);
+
       // Determine cable color: check custom color, then default role
       let cableHex = customCableColors[linkKey] || customCableColors[revKey];
 
@@ -755,61 +793,221 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
         }
       }
 
-      const tubeGeo = new THREE.TubeGeometry(curve, 38, isSelectedCable ? 0.026 : 0.019, 8, false);
-      const tubeMat = new THREE.MeshStandardMaterial({
-        color: cableHex,
-        roughness: isSelectedCable ? 0.2 : 0.35,
-        metalness: isSelectedCable ? 0.4 : 0.2,
-        emissive: isSelectedCable ? cableHex : 0x000000,
-        emissiveIntensity: isSelectedCable ? 0.35 : 0,
-      });
+      if (isDiagnosticMode) {
+        if (touchesSelectedRack && isLinkActive) {
+          // Glowing Neon Active Path: bright core + additive dual-layer neon aura + endpoint rings
+          const isTrunk = portIs(link.a, 'GigabitEthernet0/1') || portIs(link.b, 'GigabitEthernet0/1');
+          const neonHex = isTrunk ? 0x00f5ff : 0x00ff9d;
 
-      const cableMesh = new THREE.Mesh(tubeGeo, tubeMat);
-      cableMesh.castShadow = true;
-      scene.add(cableMesh);
-      cableMeshesRef.current.push({ mesh: cableMesh, linkKey, curve });
+          const coreGeo = new THREE.TubeGeometry(curve, 44, 0.023, 10, false);
+          const coreMat = new THREE.MeshBasicMaterial({
+            color: neonHex,
+            toneMapped: false,
+          });
+          const cableMesh = new THREE.Mesh(coreGeo, coreMat);
+          scene.add(cableMesh);
+          cableMeshesRef.current.push({ mesh: cableMesh, linkKey, curve });
+          clickableMeshesRef.current.push({
+            id: linkKey,
+            mesh: cableMesh,
+            type: 'cable',
+            meta: { link, hex: neonHex },
+          });
 
-      // Add to clickable raycaster
-      clickableMeshesRef.current.push({
-        id: linkKey,
-        mesh: cableMesh,
-        type: 'cable',
-        meta: { link, hex: cableHex },
-      });
+          // Inner Neon Glow Sheath
+          const innerGlowGeo = new THREE.TubeGeometry(curve, 44, 0.044, 10, false);
+          const innerGlowMat = new THREE.MeshBasicMaterial({
+            color: neonHex,
+            transparent: true,
+            opacity: 0.42,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            toneMapped: false,
+          });
+          const innerGlowMesh = new THREE.Mesh(innerGlowGeo, innerGlowMat);
+          scene.add(innerGlowMesh);
+          diagnosticGlowMeshesRef.current.push(innerGlowMesh);
+          diagnosticHaloMaterialsRef.current.push({
+            mat: innerGlowMat,
+            baseOpacity: 0.42,
+            phase: pathIndex * 0.9,
+          });
 
-      // Add Velcro Cable Management Combs along the span if enabled
-      if (showCableCombs) {
-        const combGeo = new THREE.CylinderGeometry(0.024, 0.024, 0.038, 12);
-        const combMat = new THREE.MeshStandardMaterial({
-          color: 0x0284c7, // Velcro strap with cyan accent
-          metalness: 0.3,
-          roughness: 0.8,
-        });
-        for (const t of [0.32, 0.68]) {
-          const pt = curve.getPointAt(t);
-          const tangent = curve.getTangentAt(t);
-          const comb = new THREE.Mesh(combGeo, combMat);
-          comb.position.copy(pt);
-          comb.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), tangent);
-          scene.add(comb);
-          cableCombsRef.current.push(comb);
+          // Outer Soft Neon Halo Sheath
+          const outerGlowGeo = new THREE.TubeGeometry(curve, 44, 0.076, 10, false);
+          const outerGlowMat = new THREE.MeshBasicMaterial({
+            color: neonHex,
+            transparent: true,
+            opacity: 0.16,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            toneMapped: false,
+          });
+          const outerGlowMesh = new THREE.Mesh(outerGlowGeo, outerGlowMat);
+          scene.add(outerGlowMesh);
+          diagnosticGlowMeshesRef.current.push(outerGlowMesh);
+          diagnosticHaloMaterialsRef.current.push({
+            mat: outerGlowMat,
+            baseOpacity: 0.16,
+            phase: pathIndex * 0.9,
+          });
+
+          // Glowing Endpoint Halos
+          for (const endPos of [pA, pB]) {
+            const nodeGeo = new THREE.SphereGeometry(0.036, 12, 12);
+            const nodeMat = new THREE.MeshBasicMaterial({
+              color: neonHex,
+              transparent: true,
+              opacity: 0.55,
+              blending: THREE.AdditiveBlending,
+              depthWrite: false,
+              toneMapped: false,
+            });
+            const nodeMesh = new THREE.Mesh(nodeGeo, nodeMat);
+            nodeMesh.position.copy(endPos);
+            scene.add(nodeMesh);
+            diagnosticGlowMeshesRef.current.push(nodeMesh);
+            diagnosticHaloMaterialsRef.current.push({
+              mat: nodeMat,
+              baseOpacity: 0.55,
+              phase: pathIndex * 0.9,
+            });
+          }
+
+          // High-visibility fast neon tracer pulses along active path
+          for (let k = 0; k < 2; k++) {
+            const pulseGeo = new THREE.SphereGeometry(0.034, 10, 10);
+            const pulseMat = new THREE.MeshBasicMaterial({
+              color: 0xffffff,
+              transparent: true,
+              opacity: 0.95,
+              blending: THREE.AdditiveBlending,
+              depthWrite: false,
+              toneMapped: false,
+            });
+            const pulseSphere = new THREE.Mesh(pulseGeo, pulseMat);
+            scene.add(pulseSphere);
+            pulseSpheresRef.current.push({
+              mesh: pulseSphere,
+              curve,
+              progress: (k * 0.5 + pathIndex * 0.17) % 1.0,
+              speed: 0.65 + (pathIndex % 3) * 0.12,
+            });
+          }
+          pathIndex++;
+        } else if (touchesSelectedRack && !isLinkActive) {
+          // Connected to selected rack, but link is down / shutdown -> amber diagnostic fault glow
+          const faultHex = 0xff7b00;
+          const coreGeo = new THREE.TubeGeometry(curve, 38, 0.021, 8, false);
+          const coreMat = new THREE.MeshBasicMaterial({
+            color: faultHex,
+            toneMapped: false,
+          });
+          const cableMesh = new THREE.Mesh(coreGeo, coreMat);
+          scene.add(cableMesh);
+          cableMeshesRef.current.push({ mesh: cableMesh, linkKey, curve });
+          clickableMeshesRef.current.push({
+            id: linkKey,
+            mesh: cableMesh,
+            type: 'cable',
+            meta: { link, hex: faultHex },
+          });
+
+          const warnGlowGeo = new THREE.TubeGeometry(curve, 38, 0.044, 8, false);
+          const warnGlowMat = new THREE.MeshBasicMaterial({
+            color: 0xff4500,
+            transparent: true,
+            opacity: 0.25,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            toneMapped: false,
+          });
+          const warnGlowMesh = new THREE.Mesh(warnGlowGeo, warnGlowMat);
+          scene.add(warnGlowMesh);
+          diagnosticGlowMeshesRef.current.push(warnGlowMesh);
+          diagnosticHaloMaterialsRef.current.push({
+            mat: warnGlowMat,
+            baseOpacity: 0.25,
+            phase: pathIndex * 1.3,
+          });
+          pathIndex++;
+        } else {
+          // Unrelated rack/desk cable -> dimmed ghost slate
+          const dimGeo = new THREE.TubeGeometry(curve, 32, 0.015, 8, false);
+          const dimMat = new THREE.MeshStandardMaterial({
+            color: 0x1e293b,
+            transparent: true,
+            opacity: 0.25,
+            roughness: 0.85,
+            metalness: 0.1,
+          });
+          const cableMesh = new THREE.Mesh(dimGeo, dimMat);
+          scene.add(cableMesh);
+          cableMeshesRef.current.push({ mesh: cableMesh, linkKey, curve });
+          clickableMeshesRef.current.push({
+            id: linkKey,
+            mesh: cableMesh,
+            type: 'cable',
+            meta: { link, hex: 0x1e293b },
+          });
         }
-      }
+      } else {
+        const tubeGeo = new THREE.TubeGeometry(curve, 38, isSelectedCable ? 0.026 : 0.019, 8, false);
+        const tubeMat = new THREE.MeshStandardMaterial({
+          color: cableHex,
+          roughness: isSelectedCable ? 0.2 : 0.35,
+          metalness: isSelectedCable ? 0.4 : 0.2,
+          emissive: isSelectedCable ? cableHex : 0x000000,
+          emissiveIntensity: isSelectedCable ? 0.35 : 0,
+        });
 
-      // Add signal pulse sphere if enabled
-      if (isSignalPulseActive) {
-        const pulseGeo = new THREE.SphereGeometry(0.026, 8, 8);
-        const pulseMat = new THREE.MeshBasicMaterial({
-          color: isSelectedCable ? 0xffffff : 0x7dd3fc,
+        const cableMesh = new THREE.Mesh(tubeGeo, tubeMat);
+        cableMesh.castShadow = true;
+        scene.add(cableMesh);
+        cableMeshesRef.current.push({ mesh: cableMesh, linkKey, curve });
+
+        // Add to clickable raycaster
+        clickableMeshesRef.current.push({
+          id: linkKey,
+          mesh: cableMesh,
+          type: 'cable',
+          meta: { link, hex: cableHex },
         });
-        const pulseSphere = new THREE.Mesh(pulseGeo, pulseMat);
-        scene.add(pulseSphere);
-        pulseSpheresRef.current.push({
-          mesh: pulseSphere,
-          curve,
-          progress: Math.random(),
-          speed: 0.35 + Math.random() * 0.2,
-        });
+
+        // Add Velcro Cable Management Combs along the span if enabled
+        if (showCableCombs) {
+          const combGeo = new THREE.CylinderGeometry(0.024, 0.024, 0.038, 12);
+          const combMat = new THREE.MeshStandardMaterial({
+            color: 0x0284c7, // Velcro strap with cyan accent
+            metalness: 0.3,
+            roughness: 0.8,
+          });
+          for (const t of [0.32, 0.68]) {
+            const pt = curve.getPointAt(t);
+            const tangent = curve.getTangentAt(t);
+            const comb = new THREE.Mesh(combGeo, combMat);
+            comb.position.copy(pt);
+            comb.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), tangent);
+            scene.add(comb);
+            cableCombsRef.current.push(comb);
+          }
+        }
+
+        // Add signal pulse sphere if enabled
+        if (isSignalPulseActive) {
+          const pulseGeo = new THREE.SphereGeometry(0.026, 8, 8);
+          const pulseMat = new THREE.MeshBasicMaterial({
+            color: isSelectedCable ? 0xffffff : 0x7dd3fc,
+          });
+          const pulseSphere = new THREE.Mesh(pulseGeo, pulseMat);
+          scene.add(pulseSphere);
+          pulseSpheresRef.current.push({
+            mesh: pulseSphere,
+            curve,
+            progress: Math.random(),
+            speed: 0.35 + Math.random() * 0.2,
+          });
+        }
       }
     }
 
@@ -839,11 +1037,31 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
         ledMat.emissive.setHex(0xb45309);
       }
     }
-  }, [sim, customCableColors, customCableTension, isSignalPulseActive, showCableCombs, selectedCableKey]);
+  }, [
+    sim,
+    customCableColors,
+    customCableTension,
+    isSignalPulseActive,
+    showCableCombs,
+    selectedCableKey,
+    isDiagnosticMode,
+    selectedRack,
+  ]);
 
   useEffect(() => {
     updateCablesAndLeds();
-  }, [sim.links, simRevision, customCableColors, customCableTension, isSignalPulseActive, showCableCombs, selectedCableKey, updateCablesAndLeds]);
+  }, [
+    sim.links,
+    simRevision,
+    customCableColors,
+    customCableTension,
+    isSignalPulseActive,
+    showCableCombs,
+    selectedCableKey,
+    isDiagnosticMode,
+    selectedRack,
+    updateCablesAndLeds,
+  ]);
 
   // Recolor all cables to a selected palette
   const handleRecolorAllCables = (hex: number) => {
@@ -1108,9 +1326,13 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
     scene.add(socScreen);
 
     // --- 19" SERVER RACK CAGE BUILDER ---
-    const buildRackFrame = (x: number, z: number, rackLabel: string) => {
+    const rackMeshesMap = new Map<'Rack A' | 'Rack B', THREE.Mesh[]>();
+    const rackHighlightsMap = new Map<'Rack A' | 'Rack B', { group: THREE.Group; mats: THREE.MeshBasicMaterial[] }>();
+
+    const buildRackFrame = (x: number, z: number, rackLabel: 'Rack A' | 'Rack B') => {
       const rackGroup = new THREE.Group();
       rackGroup.position.set(x, 0, z);
+      const frameMeshes: THREE.Mesh[] = [];
 
       const pillarMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.8, roughness: 0.25 });
       const pGeo = new THREE.BoxGeometry(0.08, 2.95, 0.08);
@@ -1120,6 +1342,7 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
         pillar.position.set(px, 1.47, pz);
         pillar.castShadow = true;
         rackGroup.add(pillar);
+        frameMeshes.push(pillar);
       }
 
       // 19" Vertical Steel Equipment Mounting Rails (front and rear)
@@ -1140,10 +1363,12 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
       const topPlate = new THREE.Mesh(new THREE.BoxGeometry(1.08, 0.08, 1.08), plateMat);
       topPlate.position.set(0, 2.92, 0);
       rackGroup.add(topPlate);
+      frameMeshes.push(topPlate);
 
       const botPlate = new THREE.Mesh(new THREE.BoxGeometry(1.08, 0.08, 1.08), plateMat);
       botPlate.position.set(0, 0.04, 0);
       rackGroup.add(botPlate);
+      frameMeshes.push(botPlate);
 
       // Perforated mesh side panels
       const sidePanelMat = new THREE.MeshStandardMaterial({ color: 0x090d16, roughness: 0.8, wireframe: true });
@@ -1155,12 +1380,53 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
       rightSide.position.set(0.49, 1.47, 0);
       rackGroup.add(rightSide);
 
+      // Diagnostic Mode Neon Perimeter Highlight Cage
+      const highlightGroup = new THREE.Group();
+      const highlightMats: THREE.MeshBasicMaterial[] = [];
+      const neonStripMat = new THREE.MeshBasicMaterial({
+        color: 0x00f5ff,
+        transparent: true,
+        opacity: 0.85,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        toneMapped: false,
+      });
+      highlightMats.push(neonStripMat);
+
+      const pillarGlowGeo = new THREE.BoxGeometry(0.025, 2.98, 0.025);
+      for (const [px, pz] of [[-0.53, -0.53], [0.53, -0.53], [-0.53, 0.53], [0.53, 0.53]]) {
+        const strip = new THREE.Mesh(pillarGlowGeo, neonStripMat);
+        strip.position.set(px, 1.48, pz);
+        highlightGroup.add(strip);
+      }
+      const xBarGeo = new THREE.BoxGeometry(1.08, 0.025, 0.025);
+      const zBarGeo = new THREE.BoxGeometry(0.025, 0.025, 1.08);
+      for (const barY of [0.02, 2.96]) {
+        for (const barZ of [-0.53, 0.53]) {
+          const bar = new THREE.Mesh(xBarGeo, neonStripMat);
+          bar.position.set(0, barY, barZ);
+          highlightGroup.add(bar);
+        }
+        for (const barX of [-0.53, 0.53]) {
+          const bar = new THREE.Mesh(zBarGeo, neonStripMat);
+          bar.position.set(barX, barY, 0);
+          highlightGroup.add(bar);
+        }
+      }
+      highlightGroup.visible = false;
+      rackGroup.add(highlightGroup);
+
+      rackMeshesMap.set(rackLabel, frameMeshes);
+      rackHighlightsMap.set(rackLabel, { group: highlightGroup, mats: highlightMats });
+
       scene.add(rackGroup);
       return rackGroup;
     };
 
     buildRackFrame(-1.8, 0, 'Rack A');
     buildRackFrame(-1.8, -1.4, 'Rack B');
+    rackFrameMeshesRef.current = rackMeshesMap;
+    rackHighlightGroupsRef.current = rackHighlightsMap;
 
     // --- WORKSTATION DESKS ---
     const buildDesk = (x: number, z: number, deskName: string) => {
@@ -1817,6 +2083,24 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
         }
       }
 
+      // 4. Rack frame hover (Rack A / Rack B)
+      const allRackMeshes: THREE.Mesh[] = [];
+      for (const list of rackFrameMeshesRef.current.values()) {
+        allRackMeshes.push(...list);
+      }
+      const rackHits = raycaster.intersectObjects(allRackMeshes);
+      if (rackHits.length > 0) {
+        const hitMesh = rackHits[0].object as THREE.Mesh;
+        for (const [rackName, list] of rackFrameMeshesRef.current.entries()) {
+          if (list.includes(hitMesh)) {
+            setHoveredDevice(`${rackName} (Click to select rack for diagnostics)`);
+            setHoveredPort(null);
+            container.style.cursor = 'pointer';
+            return;
+          }
+        }
+      }
+
       setHoveredPort(null);
       setHoveredDevice(null);
       container.style.cursor = 'default';
@@ -1891,11 +2175,37 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
 
           sounds.playKeyClick();
           setSelectedUnitId(found.id);
+          const clickedUnitSpec = ALL_RACK_UNITS.find((u) => u.id === found.id);
+          if (clickedUnitSpec) {
+            setSelectedRack(clickedUnitSpec.rack);
+          }
 
           if (found.type === 'device' && sim.devices.has(found.id)) {
             liveRef.current.onOpenTerminal(found.id);
           }
           return;
+        }
+      }
+
+      // Check Rack Frame Click (select Rack A or Rack B for diagnostics)
+      const allRackMeshes: THREE.Mesh[] = [];
+      for (const list of rackFrameMeshesRef.current.values()) {
+        allRackMeshes.push(...list);
+      }
+      const rackHits = raycaster.intersectObjects(allRackMeshes);
+      if (rackHits.length > 0) {
+        const hitMesh = rackHits[0].object as THREE.Mesh;
+        for (const [rackName, list] of rackFrameMeshesRef.current.entries()) {
+          if (list.includes(hitMesh)) {
+            sounds.playKeyClick();
+            setSelectedRack(rackName);
+            showToast(
+              liveRef.current.isDiagnosticMode
+                ? `Diagnostic trace focused on ${rackName}.`
+                : `Selected ${rackName}. Toggle Diagnostic mode to trace active neon cable paths.`
+            );
+            return;
+          }
         }
       }
 
@@ -2064,8 +2374,32 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
         }
       }
 
+      // Smooth diagnostic room dimming & neon pulsing
+      const diagActive = Boolean(liveRef.current.isDiagnosticMode);
+      const activeRack = liveRef.current.selectedRack as 'Rack A' | 'Rack B';
+      ambientLight.intensity = THREE.MathUtils.damp(ambientLight.intensity, diagActive ? 0.55 : 1.6, 6, delta);
+      hemiLight.intensity = THREE.MathUtils.damp(hemiLight.intensity, diagActive ? 0.45 : 1.3, 6, delta);
+      ceilingKeyLight.intensity = THREE.MathUtils.damp(ceilingKeyLight.intensity, diagActive ? 1.15 : 3.2, 6, delta);
+      ceilingKeyLightB.intensity = THREE.MathUtils.damp(ceilingKeyLightB.intensity, diagActive ? 0.95 : 2.6, 6, delta);
+      ceilingFillLight.intensity = THREE.MathUtils.damp(ceilingFillLight.intensity, diagActive ? 0.75 : 2.2, 6, delta);
+
+      const elapsed = clock.elapsedTime;
+      for (const halo of diagnosticHaloMaterialsRef.current) {
+        halo.mat.opacity = halo.baseOpacity * (0.78 + 0.22 * Math.sin(elapsed * 4.2 + halo.phase));
+      }
+
+      for (const [rackName, hGroup] of rackHighlightGroupsRef.current.entries()) {
+        const shouldShow = diagActive && activeRack === rackName;
+        hGroup.group.visible = shouldShow;
+        if (shouldShow) {
+          for (const mat of hGroup.mats) {
+            mat.opacity = 0.7 + 0.25 * Math.sin(elapsed * 3.5);
+          }
+        }
+      }
+
       // Signal photon pulses travelling along network cables
-      if (liveRef.current.isSignalPulseActive) {
+      if (liveRef.current.isSignalPulseActive || diagActive) {
         for (const pulse of pulseSpheresRef.current) {
           pulse.progress = (pulse.progress + delta * pulse.speed) % 1.0;
           const pos = pulse.curve.getPointAt(pulse.progress);
@@ -2271,6 +2605,17 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('blur', handleWindowBlur);
 
+      for (const glowMesh of diagnosticGlowMeshesRef.current) {
+        glowMesh.geometry.dispose();
+        if (Array.isArray(glowMesh.material)) {
+          glowMesh.material.forEach((m) => m.dispose());
+        } else {
+          glowMesh.material.dispose();
+        }
+      }
+      diagnosticGlowMeshesRef.current = [];
+      diagnosticHaloMaterialsRef.current = [];
+
       if (container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);
       }
@@ -2366,6 +2711,8 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
     explodedSeparation,
     selectedUnitId,
     isSignalPulseActive,
+    isDiagnosticMode,
+    selectedRack,
     selectedPort,
     handlePortClick,
     toggleDriveEject,
@@ -2379,6 +2726,43 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
   const selectedUnitSpec = useMemo(() => {
     return ALL_RACK_UNITS.find((u) => u.id === selectedUnitId) || ALL_RACK_UNITS[2];
   }, [selectedUnitId]);
+
+  const diagnosticStats = useMemo(() => {
+    let activeCount = 0;
+    let downCount = 0;
+    const peers = new Set<string>();
+
+    const getRack = (devId: string): 'Rack A' | 'Rack B' | null => {
+      const simDev = sim.devices.get(devId);
+      if (simDev?.rack === 'Rack A' || simDev?.rack === 'Rack B') return simDev.rack;
+      const spec = ALL_RACK_UNITS.find((u) => u.id === devId);
+      return spec ? spec.rack : null;
+    };
+
+    for (const link of sim.links) {
+      const [devAId, ifAName] = link.a.split(':');
+      const [devBId, ifBName] = link.b.split(':');
+      const rackA = getRack(devAId);
+      const rackB = getRack(devBId);
+      if (rackA !== selectedRack && rackB !== selectedRack) continue;
+
+      const ifA = sim.devices.get(devAId)?.getInterface(ifAName);
+      const ifB = sim.devices.get(devBId)?.getInterface(ifBName);
+      if (ifA?.operUp && ifB?.operUp) {
+        activeCount++;
+      } else {
+        downCount++;
+      }
+      peers.add(devAId);
+      peers.add(devBId);
+    }
+
+    return {
+      activeCount,
+      downCount,
+      peerList: Array.from(peers),
+    };
+  }, [sim, simRevision, sim.links, selectedRack]);
 
   const equipmentLabels = useMemo(() => {
     const workstationId = sim.devices.has('SOC-PC') ? 'SOC-PC' : sim.devices.has('PC-1') ? 'PC-1' : 'PC-A';
@@ -2505,7 +2889,77 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
           <span>Labels</span>
           <span className={`h-1.5 w-1.5 rounded-full ${areEquipmentLabelsVisible ? 'bg-cyan-300' : 'bg-slate-600'}`} />
         </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            sounds.playKeyClick();
+            const next = !isDiagnosticMode;
+            setIsDiagnosticMode(next);
+            showToast(
+              next
+                ? `Diagnostic View enabled: tracing neon cable paths for ${selectedRack}.`
+                : 'Diagnostic View disabled.'
+            );
+          }}
+          aria-pressed={isDiagnosticMode}
+          aria-label="Toggle diagnostic cable path view"
+          className={`flex min-h-11 items-center gap-1.5 rounded-lg border px-2.5 py-1 font-semibold transition sm:min-h-0 ${
+            isDiagnosticMode
+              ? 'border-emerald-300/80 bg-emerald-400/20 text-emerald-200 shadow-[0_0_12px_rgba(16,185,129,0.35)]'
+              : 'border-slate-700 bg-slate-950/50 text-slate-300 hover:border-emerald-500 hover:text-emerald-300'
+          }`}
+          title="Highlight active network cable paths with glowing neon lines when a rack is selected"
+        >
+          <Activity className="h-3.5 w-3.5" />
+          <span>Diagnostic</span>
+          <span className={`h-1.5 w-1.5 rounded-full ${isDiagnosticMode ? 'bg-emerald-300 animate-pulse' : 'bg-slate-600'}`} />
+        </button>
       </div>
+
+      {/* Diagnostic Mode HUD Bar (Rack Selector + Live Path Summary) */}
+      {isDiagnosticMode && (
+        <div className="absolute top-16 left-4 z-10 flex flex-wrap items-center gap-2.5 rounded-xl border border-emerald-500/50 bg-slate-950/90 backdrop-blur-md px-3 py-2 text-xs shadow-[0_0_24px_rgba(0,245,255,0.18)]">
+          <div className="flex items-center gap-1.5 font-mono text-[11px] font-bold text-cyan-300">
+            <Activity className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
+            <span>DIAGNOSTIC TRACE</span>
+          </div>
+
+          <div className="flex items-center gap-1 pl-2 border-l border-slate-800">
+            {(['Rack A', 'Rack B'] as const).map((rack) => (
+              <button
+                key={rack}
+                type="button"
+                onClick={() => {
+                  sounds.playKeyClick();
+                  setSelectedRack(rack);
+                  showToast(`Diagnostic trace switched to ${rack}.`);
+                }}
+                className={`px-2 py-0.5 rounded-md font-mono text-[11px] font-semibold transition ${
+                  selectedRack === rack
+                    ? 'bg-cyan-400 text-slate-950 shadow-[0_0_10px_rgba(34,211,238,0.6)]'
+                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                }`}
+              >
+                {rack}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-2.5 pl-2 border-l border-slate-800 text-[11px]">
+            <span className="flex items-center gap-1 text-emerald-300 font-mono font-semibold">
+              <span className="w-2 h-2 rounded-full bg-[#00ff9d] shadow-[0_0_8px_#00ff9d]" />
+              {diagnosticStats.activeCount} Active
+            </span>
+            {diagnosticStats.downCount > 0 && (
+              <span className="flex items-center gap-1 text-amber-300 font-mono font-semibold">
+                <span className="w-2 h-2 rounded-full bg-amber-500 shadow-[0_0_8px_#ff7b00]" />
+                {diagnosticStats.downCount} Down
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       <button
         type="button"
@@ -2709,6 +3163,7 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
                         onClick={() => {
                           sounds.playKeyClick();
                           setSelectedUnitId(u.id);
+                          setSelectedRack(u.rack);
                         }}
                         className={`px-2 py-0.8 rounded text-[11px] font-mono transition ${
                           selectedUnitId === u.id
@@ -3151,6 +3606,29 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
                       />
                     </div>
 
+                    {/* Diagnostic Neon Path Mode Toggle */}
+                    <button
+                      onClick={() => {
+                        sounds.playKeyClick();
+                        const next = !isDiagnosticMode;
+                        setIsDiagnosticMode(next);
+                        showToast(
+                          next
+                            ? `Diagnostic View enabled: tracing neon cable paths for ${selectedRack}.`
+                            : 'Diagnostic View disabled.'
+                        );
+                      }}
+                      className={`px-2.5 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition ${
+                        isDiagnosticMode
+                          ? 'bg-emerald-950/90 text-emerald-300 border-emerald-500 shadow-sm shadow-emerald-500/30'
+                          : 'bg-slate-800 text-slate-300 border-slate-700 hover:text-emerald-300'
+                      }`}
+                      title="Toggle Diagnostic Neon Path Highlighting for the selected rack"
+                    >
+                      <Activity className="w-3.5 h-3.5" />
+                      <span>{isDiagnosticMode ? `Diagnostic: ${selectedRack}` : 'Diagnostic View'}</span>
+                    </button>
+
                     {/* Signal Pulse Toggle */}
                     <button
                       onClick={() => {
@@ -3203,6 +3681,7 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
                           onClick={() => {
                             sounds.playKeyClick();
                             setSelectedUnitId(u.id);
+                            setSelectedRack(u.rack);
                             setActiveDockTab('chassis');
                           }}
                           className={`p-2 rounded-lg border cursor-pointer transition flex items-center justify-between ${
@@ -3239,6 +3718,7 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
                           onClick={() => {
                             sounds.playKeyClick();
                             setSelectedUnitId(u.id);
+                            setSelectedRack(u.rack);
                             setActiveDockTab('chassis');
                           }}
                           className={`p-2 rounded-lg border cursor-pointer transition flex items-center justify-between ${
