@@ -1,242 +1,99 @@
-# NetSec 3D Simulator - Three.js Version
+# NetSec 3D Simulator
 
-A browser-based 3D networking and security simulator built with Three.js, React, and TypeScript. Fix broken networks and insecure servers in an interactive server room through a Cisco IOS-style terminal, across four missions: orientation, VLAN connectivity, log triage, and web patching. Built to teach CCNA-level networking concepts and introductory security investigation hands-on.
+You’re the technician on shift in a virtual server room. Find the right device, trace a cable, open a console, and use the mission checklist to see whether your fix worked. The four-mission campaign covers CCNA-level networking fundamentals and introductory security operations.
 
-All devices, packets, logs, HTTP responses, and code patches are simulated locally, with full session snapshots and campaign progress persisted to a local SQLite database (`data/netsec.db`) via a lightweight Express backend. No physical networking equipment or external database server is required.
+This is the **Three.js browser fork of the original Godot 4 game**. The room runs in Three.js, the interface is built with React and TypeScript, and an Express server saves progress to SQLite. You don’t need Godot, physical networking equipment, or an external database.
 
 <p align="center">
-  <a href="dist\terminal-command-wall.png"
-     target="_blank">
-    <img src="dist\terminal-command-wall.png"
-         alt="netsec-3d interface preview"
-         width="700">
-  </a>
+  <img src="public/terminal-command-wall.png" alt="Illustration of a terminal monitor between server racks" width="560">
 </p>
 
-## Contents
+## Run locally
 
-- [Features and missions](#features-and-missions)
-- [Requirements](#requirements)
-- [Quick start](#quick-start)
-- [How to play](#how-to-play)
-- [Development commands](#development-commands)
-- [Production build and hosting](#production-build-and-hosting)
-- [Project structure](#project-structure)
-- [Development and verification](#development-and-verification)
-- [Troubleshooting](#troubleshooting)
-- [Scope and limitations](#scope-and-limitations)
-- [License](#license)
+You’ll need **Node.js 22.18 or newer**, npm, Git, and a WebGL-capable browser. Use the Express development command below so the game and its save API run together.
 
-## Features and missions
-
-- Interactive Three.js server room with camera presets (including Rear Servicing angle), equipment labels, clickable devices and ports, cable customization, and link indicators.
-- Realistic server chassis mechanics: telescopic slide rails, removable top cover lids exposing internal dual Xeon CPUs and RAM DIMMs, spinning blower fans with turbo mode, hot-swap SAS drive bays, and dual redundant hot-swap power supplies (PSUs) with N+0 failover and total AC power loss simulation.
-- Expanded 42U rack units across Rack A and Rack B, including 1U Dual Automatic Transfer Switch (ATS1) and 1U 48-Port Keystone Passthrough Bay (PATCH_48).
-- Advanced cable studio: quick-apply styling presets (VLAN Standard, Datacenter Fabric, SAN Storage, High-Contrast Audit), custom hex color picker, catenary sag tension adjustment, animated packet light pulses, and 3D velcro cable management grouping combs.
-- Simulated routers, switches, PCs, and servers with IPv4 addressing, access VLANs, trunks, router subinterfaces, and connectivity checks.
-- IOS-style configuration modes, command abbreviations, contextual help, terminal history, and completion.
-- Live mission objectives, contextual guidance, mission restart, and completion tracking.
-- SOC log viewer, threat map, and incident report form.
-- Guided patch editor for SQL injection and reflected cross-site scripting exercises.
-- Sound effects with mute controls (rail slides, latch clicks, power switch clicks, fan spool, and cable snaps).
-
-| Mission | Title | Practice |
-| --- | --- | --- |
-| M0 | Orientation: First Connection | Locate a PC, use its terminal, and ping another host. |
-| M1 | Day One: Get Them Talking | Cable PC-B, configure VLANs and a trunk, and set up router-on-a-stick connectivity. |
-| M2 | Who Knocked? | Investigate authentication logs and submit an incident triage report. |
-| M3 | Patch Tuesday | Demonstrate simulated SQL injection and reflected XSS, patch the affected code, and retest. |
-
-The mission catalog unlocks missions as the preceding mission is completed.
-
-## Requirements
-
-- **Node.js 22 or newer** and **npm** for the setup workflow below. The locked Tailwind CSS native tooling requires at least Node.js 20; the project does not pin a Node version.
-- **Git** to clone the repository.
-- A desktop browser with **WebGL enabled**, a mouse or trackpad, and a keyboard. The interface relies on mouse navigation and terminal input.
-
-The application uses React 18, Three.js 0.170, TypeScript 5, Vite 5, Tailwind CSS 4, and Lucide icons. Exact installed versions are recorded in [package-lock.json](package-lock.json).
-
-## Quick start
-
-```bash
+```sh
 git clone https://github.com/jimjamscott22/NetSec-3D-Three.js.git
 cd NetSec-3D-Three.js
 npm ci
 npm run dev
 ```
 
-Open **http://localhost:3000**. Stop the server with **Ctrl+C** in the terminal where it is running.
+Open **http://localhost:3000**. Press `Ctrl+C` in the server terminal to stop it. No API keys or accounts are required.
 
-If you already have the repository, run `npm ci` and `npm run dev` from its root. `npm ci` installs dependencies from the committed lockfile.
+| Environment variable | Default | Purpose |
+| --- | --- | --- |
+| `PORT` | `3000` | HTTP port for the game and its API. |
+| `NETSEC_DB_PATH` | `./data/netsec.db` | SQLite file for saves and progress. Relative paths are resolved from the working directory. |
 
-The development server binds to `0.0.0.0`, making it reachable through the machine's network address as well as localhost. Port 3000 is strict: startup fails if it is already occupied. To use another port:
+If the default port is busy, set `PORT` before starting the server. For example, in Bash or zsh: `PORT=3001 npm run dev`. See [`.env.example`](.env.example) for sample values. The Express entry point reads the process environment; copying the example to `.env` alone does not configure it.
 
-```bash
-npm run dev -- --port 3001
-```
+## Play your first mission
 
-### Configuration
+1. Open **Missions** and choose **Orientation: First Connection**.
+2. Select **PC-A console** in the mission panel. In the **in-game** terminal, run `ping 192.168.1.20` to reach PC-B.
+3. Check the objective panel for verification, then select **View debrief** to continue to the next mission. Use **Guidance** (or `H` when you’re not typing) if you get stuck.
 
-Optional environment variables are documented in [.env.example](.env.example):
-
-- `PORT`: HTTP port for the Express + Vite server (default `3000`).
-- `NETSEC_DB_PATH`: Path to the SQLite database file (default `./data/netsec.db`).
-
-No API keys or external accounts are required. Copying `.env.example` to `.env` is optional.
-
-## How to play
-
-1. Start with **Orientation: First Connection**. The app opens the PC-A terminal and contextual guidance automatically.
-2. Close the guidance overlay when ready, click the terminal input, and enter:
-
-   ```text
-   ping 192.168.1.20
-   ```
-
-3. Watch the objective panel for completion feedback. Use the mission button in the top bar to open the campaign catalog and launch the next available mission.
-4. Follow the named devices, ports, and objectives in each mission. Open **Guidance (H)** whenever you need step-by-step instructions or suggested commands.
-
-### Controls
-
-| Action | Control |
+| Mission | What you’ll do |
 | --- | --- |
-| Change viewpoint | Use the camera angle buttons (Overview, Rack A, Rack B, Rear Servicing, KVM Drawer, Desk 1, Desk 2, SOC Monitor). |
-| Orbit the room | Hold the left mouse button and drag in the 3D viewport. |
-| Zoom | Scroll in the 3D viewport. |
-| Inspect chassis & rails | Click any rack unit or use the bottom dock Chassis tab to extend rails, remove top lid, or toggle power. |
-| Eject SAS drive or PSU | Click drive bays or rear power supplies directly in 3D or use the dock buttons to toggle eject and latch. |
-| Cable studio & presets | Open the Cable Studio dock tab to apply VLAN/DC/SAN presets, adjust sag, toggle light pulses, or toggle velcro combs. |
-| Open a device console | Click a mission device or use the top-bar **CLI Terminal** button. |
-| Change terminal device | Use the device selector in the terminal. |
-| Connect a cable | Click a free source port, then a free destination port; a spare cable must be available. |
-| Cancel a port selection | Click the selected source port again. |
-| Disconnect a cable | Click an occupied port on an unlocked link, or click a cable to select and unplug. |
-| Toggle guidance | Click **Guidance (H)** or press **H** while focus is outside a text input. |
-| Run a command | Press **Enter** in the terminal. |
-| Browse command history | Press **Up / Down** in the terminal. |
-| Complete a command | Press **Tab** in the terminal. |
-| Get IOS command help | Press **?** in a router or switch terminal. |
-| Leave configuration mode | Press **Ctrl+Z** in an IOS terminal. |
-| Open mission tools | Use **SOC Logs & Threat Map** in M2 or **Patch Editor** in M3. |
-| Mute or unmute | Use the speaker controls. |
+| **M0 · Orientation: First Connection** | Find PC-A, open its console, and verify that PC-B responds. |
+| **M1 · Day One: Get Them Talking** | Cable PC-B, configure VLANs and a trunk, and restore connectivity with router-on-a-stick routing. |
+| **M2 · Who Knocked?** | Review simulated authentication logs and a threat map, then submit an incident report. |
+| **M3 · Patch Tuesday** | Use the patch editor to fix simulated SQL injection and reflected cross-site scripting flaws and verify the fixes. |
 
-### Terminal examples
+Missions unlock in order when the preceding mission is verified.
 
-Commands are entered inside the simulator's terminal. Their availability depends on the selected device and current configuration mode.
+### Room and console controls
 
-| Device | Useful starting commands |
+| To… | Use… |
 | --- | --- |
-| PC | `help`, `ipconfig`, `ping 192.168.1.20` |
-| Router or switch | `enable`, `show running-config`, `show ip interface brief` |
-| Switch | `show vlan brief` from privileged EXEC mode |
-| Server | `help`, `ls`, `cat /var/log/auth.log`, `tail -n 20 /var/log/auth.log` |
+| Find a device | Choose a preset from **Room camera** (for example, **Rack A**, **Rear servicing**, or **Desk 1**). Toggle **Equipment labels** to identify hardware. |
+| Look around | Drag the room to orbit or look. In orbit view, scroll to zoom. In first- or third-person view, move with `WASD`, the arrow keys, or the on-screen touch controls. Hold `Shift` to move faster on a keyboard. |
+| Open a console | Click or tap a mission device, use the console button in the mission panel, or select **Terminal** in the toolbar and choose a device. |
+| Patch a cable | Select one free port, then another, while a spare cable is available. Select the first port again to cancel. Locked links can’t be unplugged. |
+| Use the terminal | Press `Enter` to run a command, `↑`/`↓` for history, and `Tab` for completion. On routers and switches, `?` shows IOS-style help. |
+| Open security tools | Use **Incident report** in M2 or **Patch editor** in M3. |
 
-The terminal includes a cheatsheet, and mission guidance supplies the commands needed for each objective. This is a limited teaching command set rather than a complete Cisco IOS or operating-system shell.
+The room also has a diagnostic cable view, cable styling tools, and interactive server hardware such as slide rails, drive bays, and power supplies. Not every rack object is part of a mission; follow the device and port names in the checklist.
 
-### Saved sessions and progress (SQLite)
+## Saves and hosting
 
-Session snapshots and campaign completion history are persisted on disk in SQLite (`data/netsec.db`) using Node.js 22's built-in `node:sqlite` engine:
+The game autosaves mission state to SQLite and restores the active checkpoint when you reopen it. **Save** creates a manual checkpoint; **Sessions** lets you create, resume, overwrite, or delete named saves. **Restart** resets the current mission without clearing verified missions or manual saves. To start the campaign over, use the reset option in **Sessions**.
 
-- **Auto-Save Checkpoint**: Device configurations, cables, router subinterfaces, VLANs, CLI mode/history, terminal transcripts, incident report answers, and code patches auto-save to SQLite as you work and automatically restore on reload.
-- **Session & Progress Vault (`Save` / `Sessions` in top bar)**: Save named checkpoints, resume any saved snapshot, overwrite existing slots, or delete old saves.
-- **Start Again & Keep Progress**: Restarting a mission (from the HUD or Session Vault) resets the active mission's devices and cables while preserving all solved mission badges and saved slots in SQLite. You can also reset campaign history from the Session Vault when desired.
+For a production-style local run, stop the dev server first, then run:
 
-## Development commands
-
-Run these from the repository root after `npm ci`:
-
-| Command | Purpose |
-| --- | --- |
-| `npm run dev` | Start the Express + Vite + SQLite development server on port 3000 (`tsx server.ts`). |
-| `npm run lint` | Run TypeScript checking with `tsc --noEmit`. |
-| `npm run test` | Run automated Vitest simulation and SQLite persistence tests. |
-| `npm run build` | Bundle the frontend application into `dist/`. |
-| `npm start` | Run the production Express + SQLite server (`node server.ts`) serving `dist/`. |
-
-## Production build and hosting
-
-```bash
-npm run lint
-npm test
+```sh
 npm run build
 NODE_ENV=production npm start
 ```
 
-Stop the development server first if it is using port 3000. The Express server serves the built `dist/` bundle alongside the `/api/progress` and `/api/sessions` SQLite endpoints.
+Set `NODE_ENV` in the process environment before `npm start` if your shell doesn’t support inline assignments. Express serves `dist/` and the save API from the same port. `npm run preview` serves only the Vite build; it does not provide the save API.
 
-## Project structure
+For hosting with saves, run the Node server with a persistent, writable volume for `NETSEC_DB_PATH`. The server binds to `0.0.0.0`, and the save API is unauthenticated: all visitors to one instance share the same progress and saves. Keep the instance local or behind access controls. If saves don’t persist, check that you’re running through Express and that the database path is writable and hasn’t changed.
 
-```text
-server.ts                  Express server entry point (API + Vite dev / dist static)
-server/
-  db.ts                    SQLite database layer (node:sqlite) for sessions & progress
-src/
-  main.tsx                 React entry point
-  App.tsx                  Mission loading, panels, and SQLite auto-save/restore orchestration
-  index.css                Global styles and Tailwind CSS import
-  services/
-    sessionApi.ts          Typed REST client for /api/progress and /api/sessions
-  sim/
-    core/network_sim.ts    Simulation facade, snapshot export/import, and state operations
-    devices/               Device models and interface state
-    cli/                   CLI sessions, tokenization, and output formatting
-    net/                   IPv4 helpers and connectivity resolution
-    scenario/              Mission definitions, objective evaluation, and guidance
-    web/                   Code patch matching
-    types.ts               Shared simulation and snapshot types
-  ui/                      Terminal, objectives, mission catalog, session vault, logs, and editor
-  world/ServerRoom3D.tsx    Three.js scene, camera, equipment, and cabling
-  utils/audio.ts           Browser sound effects
-tests/                     Vitest mission and SQLite persistence test suites
-docs/                      Design documents and planning material
-index.html                 HTML entry point
-vite.config.ts             React/Tailwind plugins and development server settings
-tsconfig.json              TypeScript compiler settings
-```
+## Development
 
-Simulation logic lives under `src/sim/`; React panels and the Three.js world present that state and handle interaction. Mission definitions are TypeScript objects in [src/sim/scenario/scenarios.ts](src/sim/scenario/scenarios.ts), with shared guidance in [src/sim/scenario/guidance.ts](src/sim/scenario/guidance.ts).
-
-### Design documents
-
-- [Specification](docs/SPEC.md)
-- [Implementation plan](docs/IMPLEMENTATION_PLAN.md)
-- [Equipment label toggle plan](docs/equipment-label-toggle-plan.md)
-
-The specification, implementation plan, and `.claude/skills/netsec-sim/` references describe an earlier Godot/GDScript design, including proposed tests and features. They are background material and are not a reliable checklist of implemented browser features. The current runnable application is the React/TypeScript project described here; Godot is not required.
-
-## Development and verification
-
-Keep changes consistent with the existing separation between simulation logic and presentation. For mission changes, check the scenario definition, objective evaluator, contextual guidance, and affected panels together.
-
-Before submitting a change:
-
-1. Run `npm run lint` and `npm run build`.
-2. Run the app and exercise the affected mission, including objective feedback and restart behavior.
-3. For UI changes, check the browser console and confirm that the terminal, guidance overlays, and 3D interactions remain usable.
-4. Describe the behavior changed and the checks actually performed in the pull request. Keep unrelated generated output and dependency changes separate.
-
-## Troubleshooting
-
-| Problem | What to check |
+| Command | What it does |
 | --- | --- |
-| `npm` is not found or installation reports an unsupported engine | Install Node.js and npm, reopen your terminal, and check `node --version` and `npm --version`. Use Node.js 22 or newer for the workflow above. |
-| Port 3000 is already in use | Stop the other server or run `npm run dev -- --port 3001`. |
-| Blank or missing 3D room | Check the browser console, WebGL support, and hardware acceleration. Try a desktop browser with graphics acceleration enabled. |
-| Guidance shortcut does not respond | Move focus out of the terminal or another text input, or click **Guidance (H)**. |
-| A command is rejected | Confirm the selected device, IOS mode, and syntax using `?`, `help`, the cheatsheet, or mission guidance. |
-| A cable cannot be connected | Check spare cable inventory, whether both ports are free, and whether either port is reserved. |
-| Completion history disappears | Check browser storage permissions and that you are using the same browser profile, hostname, and port. |
-| Hosted build cannot load JavaScript or CSS | Check that the full `dist/` directory was deployed and that the build's base path matches the hosting path. |
+| `npm run dev` | Runs Express with Vite middleware for frontend development. |
+| `npm run lint` | Runs the TypeScript checker (`tsc --noEmit`). |
+| `npm test` | Runs the Vitest mission and SQLite persistence suites. |
+| `npm run build` | Bundles the frontend into `dist/`. |
+| `npm start` | Starts the Express entry point; set `NODE_ENV=production` to serve `dist/`. |
 
-## Scope and limitations
+| Where | What lives there |
+| --- | --- |
+| [`src/sim/`](src/sim/) | Device and network models, CLI commands, mission definitions, objective checks, and guidance. Start with [`scenarios.ts`](src/sim/scenario/scenarios.ts) to change a mission. |
+| [`src/world/ServerRoom3D.tsx`](src/world/ServerRoom3D.tsx) | Three.js room, cameras, equipment, and cables. |
+| [`src/ui/`](src/ui/) | Mission panels, terminal, session manager, log viewer, and patch editor. |
+| [`server.ts`](server.ts) and [`server/db.ts`](server/db.ts) | Express routes and SQLite-backed sessions and campaign progress. |
+| [`tests/`](tests/) | Mission and persistence tests. |
 
-- Network traffic is resolved from simulation state. `ping` and `curl` inside the app do not send traffic to real equipment or websites.
-- Logs and threat-map data are mission fixtures, not live security monitoring or threat intelligence.
-- The patch editor accepts predefined code patterns after normalization. It does not execute PHP or prove that arbitrary replacement code is secure.
-- Sessions and completed missions are stored locally in the server's SQLite database (`data/netsec.db`); there are no user accounts or multi-tenant authentication.
-- The room includes decorative equipment and visual interactions beyond the mission's simulated devices. Follow objective names and guidance to identify relevant equipment.
-- This is an educational simulator with a limited command set, not a full network emulator or a substitute for hands-on practice with real systems.
+The [original specification](docs/SPEC.md) and [implementation plan](docs/IMPLEMENTATION_PLAN.md) record the Godot/GDScript design. They’re historical references, not setup instructions or a feature checklist for the Three.js fork.
+
+## Simulation scope
+
+The network, devices, logs, and web responses are simulated. In-game commands don’t contact real networks, the terminal is not a full Cisco IOS or operating-system shell, and the patch editor checks expected changes without executing PHP. Use the game to practice diagnosis and verification, not as a live monitoring tool or full network emulator.
 
 ## License
 
