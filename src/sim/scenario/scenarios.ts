@@ -43,7 +43,7 @@ export const SCENARIO_TUTORIAL: ScenarioDef = {
         actionType: 'terminal',
         summary: 'Open the PC-A terminal and run one ping.',
         steps: [
-          'Use the Desk 1 camera angle to locate PC-A, or use the already-open PC-A console.',
+          'Use the PC-A console button in the mission panel, or select Desk 1 in the room camera to locate PC-A.',
           'Click inside the terminal input at the bottom of the console.',
           'Type ping 192.168.1.20 and press Enter.',
           'A successful reply marks the tutorial complete. The objective panel on the left tracks your progress.',

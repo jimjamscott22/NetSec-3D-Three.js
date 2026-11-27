@@ -501,9 +501,15 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
   const [customHexInput, setCustomHexInput] = useState<string>('#00e5ff');
 
   // UI Dock state
-  const [isDockCollapsed, setIsDockCollapsed] = useState(false);
+  const [isDockCollapsed, setIsDockCollapsed] = useState(true);
   const [activeDockTab, setActiveDockTab] = useState<'cables' | 'chassis' | 'catalog' | 'cameras'>('chassis');
   const [cameraStyle, setCameraStyle] = useState<'orbit' | 'firstPerson' | 'thirdPerson'>('orbit');
+  const [cameraPreset, setActiveCameraPreset] = useState('overview');
+  const [sceneUnavailable, setSceneUnavailable] = useState(false);
+  const touchDirections = useRef(new Map<number, string>());
+  const stopTouchMovement = (event: React.PointerEvent<HTMLButtonElement>) => {
+    touchDirections.current.delete(event.pointerId);
+  };
   const [areEquipmentLabelsVisible, setAreEquipmentLabelsVisible] = useState(false);
   const [isDiagnosticMode, setIsDiagnosticMode] = useState(false);
   const [selectedRack, setSelectedRack] = useState<'Rack A' | 'Rack B'>('Rack A');
@@ -559,6 +565,7 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
   const setViewingStyle = (style: 'orbit' | 'firstPerson' | 'thirdPerson') => {
     sounds.playKeyClick();
     setCameraStyle(style);
+    setActiveCameraPreset(style === 'orbit' ? 'overview' : style);
     if (liveRef.current) liveRef.current.cameraStyle = style;
 
     if (style === 'orbit') {
@@ -566,11 +573,6 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
         pos: new THREE.Vector3(0, 3.6, 5.5),
         lookAt: new THREE.Vector3(0, 1.2, 0),
       };
-      showToast('Orbit view enabled. Drag to rotate and scroll to zoom.');
-    } else if (style === 'firstPerson') {
-      showToast('First-person view enabled. Use WASD or arrow keys to move and drag to look.');
-    } else {
-      showToast('Third-person view enabled. Move with WASD or arrow keys; drag to look around.');
     }
   };
 
@@ -578,6 +580,7 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
   const setCameraPreset = (preset: 'overview' | 'rack_a' | 'rack_b' | 'rear' | 'kvm' | 'desk_1' | 'desk_2' | 'soc') => {
     sounds.playKeyClick();
     setCameraStyle('orbit');
+    setActiveCameraPreset(preset);
     if (liveRef.current) liveRef.current.cameraStyle = 'orbit';
 
     if (preset === 'overview') {
@@ -1167,14 +1170,35 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
       }
     );
 
-    // Camera
     const camera = new THREE.PerspectiveCamera(46, width / height, 0.1, 100);
+    const frameRoom = (w: number, h: number) => {
+      camera.aspect = w / h;
+      if (camera.aspect < 1) {
+        // Preserve more horizontal room context and shift it below the portrait HUD.
+        camera.fov = Math.min(104, THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(31)) / camera.aspect)));
+        camera.setViewOffset(w, h, 0, -h * 0.09, w, h);
+      } else {
+        camera.fov = 46;
+        camera.clearViewOffset();
+      }
+    };
+    frameRoom(width, height);
     camera.position.copy(cameraTargetRef.current.pos);
     camera.lookAt(cameraTargetRef.current.lookAt);
     cameraRef.current = camera;
 
     // WebGL Renderer
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+    let renderer: THREE.WebGLRenderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+    } catch {
+      terminalBackdrop.dispose();
+      sceneRef.current = null;
+      cameraRef.current = null;
+      setSceneUnavailable(true);
+      return;
+    }
+    setSceneUnavailable(false);
     renderer.setSize(width, height);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -2221,27 +2245,32 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
     container.addEventListener('mousemove', handleMouseMove);
     container.addEventListener('click', handleClick);
 
-    // Mouse drag rotates the active view: orbit camera, first person, or third person.
-    let isDragging = false;
+    // Mouse and touch rotate the same camera without treating a drag as a click.
+    let dragPointer: number | null = null;
     let prevMouseX = 0;
     let prevMouseY = 0;
     let dragDistance = 0;
 
-    const handleMouseDown = (e: MouseEvent) => {
-      if (e.button === 0) {
-        isDragging = true;
-        dragDistance = 0;
-        prevMouseX = e.clientX;
-        prevMouseY = e.clientY;
-      }
+    const handlePointerDown = (e: PointerEvent) => {
+      if (e.button !== 0 || !e.isPrimary || dragPointer !== null) return;
+      dragPointer = e.pointerId;
+      dragDistance = 0;
+      prevMouseX = e.clientX;
+      prevMouseY = e.clientY;
+      container.setPointerCapture(e.pointerId);
     };
 
-    const handleMouseUp = () => {
-      isDragging = false;
+    const releaseDrag = () => {
+      const pointer = dragPointer;
+      dragPointer = null;
+      if (pointer !== null && container.hasPointerCapture(pointer)) container.releasePointerCapture(pointer);
+    };
+    const handlePointerEnd = (e: PointerEvent) => {
+      if (e.pointerId === dragPointer) releaseDrag();
     };
 
-    const handleMouseDrag = (e: MouseEvent) => {
-      if (!isDragging) return;
+    const handlePointerDrag = (e: PointerEvent) => {
+      if (dragPointer !== e.pointerId) return;
       const deltaX = e.clientX - prevMouseX;
       const deltaY = e.clientY - prevMouseY;
       dragDistance += Math.abs(deltaX) + Math.abs(deltaY);
@@ -2286,7 +2315,7 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
 
     const movementKeys = new Set(['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'shift']);
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (isTypingTarget(e.target) || (liveRef.current?.cameraStyle ?? 'orbit') === 'orbit') return;
+      if (e.defaultPrevented || isTypingTarget(e.target) || document.querySelector('dialog[open]') || (liveRef.current?.cameraStyle ?? 'orbit') === 'orbit') return;
       const key = e.key.toLowerCase();
       if (movementKeys.has(key)) {
         e.preventDefault();
@@ -2296,15 +2325,22 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
     const handleKeyUp = (e: KeyboardEvent) => {
       pressedKeys.delete(e.key.toLowerCase());
     };
-    const handleWindowBlur = () => pressedKeys.clear();
+    const handleWindowBlur = () => {
+      pressedKeys.clear();
+      touchDirections.current.clear();
+      releaseDrag();
+    };
 
-    container.addEventListener('mousedown', handleMouseDown);
-    window.addEventListener('mouseup', handleMouseUp);
-    container.addEventListener('mousemove', handleMouseDrag);
+    container.addEventListener('pointerdown', handlePointerDown);
+    container.addEventListener('pointerup', handlePointerEnd);
+    container.addEventListener('pointercancel', handlePointerEnd);
+    container.addEventListener('lostpointercapture', handlePointerEnd);
+    container.addEventListener('pointermove', handlePointerDrag);
     container.addEventListener('wheel', handleWheel, { passive: false });
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
     window.addEventListener('blur', handleWindowBlur);
+    document.addEventListener('visibilitychange', handleWindowBlur);
 
     // Animation & Kinematics Loop
     let animId: number;
@@ -2316,8 +2352,14 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
       const activeCameraStyle = liveRef.current?.cameraStyle ?? 'orbit';
 
       if (activeCameraStyle !== 'orbit') {
-        const forwardInput = Number(pressedKeys.has('w') || pressedKeys.has('arrowup')) - Number(pressedKeys.has('s') || pressedKeys.has('arrowdown'));
-        const rightInput = Number(pressedKeys.has('d') || pressedKeys.has('arrowright')) - Number(pressedKeys.has('a') || pressedKeys.has('arrowleft'));
+        let forwardInput = Number(pressedKeys.has('w') || pressedKeys.has('arrowup')) - Number(pressedKeys.has('s') || pressedKeys.has('arrowdown'));
+        let rightInput = Number(pressedKeys.has('d') || pressedKeys.has('arrowright')) - Number(pressedKeys.has('a') || pressedKeys.has('arrowleft'));
+        for (const direction of touchDirections.current.values()) {
+          if (direction === 'arrowup') forwardInput++;
+          else if (direction === 'arrowdown') forwardInput--;
+          else if (direction === 'arrowleft') rightInput--;
+          else if (direction === 'arrowright') rightInput++;
+        }
         const flatForward = new THREE.Vector3(Math.sin(playerYaw), 0, -Math.cos(playerYaw));
         const flatRight = new THREE.Vector3(Math.cos(playerYaw), 0, Math.sin(playerYaw));
         const movement = flatForward.multiplyScalar(forwardInput).add(flatRight.multiplyScalar(rightInput));
@@ -2585,8 +2627,8 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
       if (!container || !renderer || !camera) return;
       const newWidth = container.clientWidth;
       const newHeight = container.clientHeight;
-      camera.aspect = newWidth / newHeight;
-      camera.updateProjectionMatrix();
+      if (!newWidth || !newHeight) return;
+      frameRoom(newWidth, newHeight);
       renderer.setSize(newWidth, newHeight);
     };
 
@@ -2597,13 +2639,17 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
       window.removeEventListener('resize', handleResize);
       container.removeEventListener('mousemove', handleMouseMove);
       container.removeEventListener('click', handleClick);
-      container.removeEventListener('mousedown', handleMouseDown);
-      window.removeEventListener('mouseup', handleMouseUp);
-      container.removeEventListener('mousemove', handleMouseDrag);
+      releaseDrag();
+      container.removeEventListener('pointerdown', handlePointerDown);
+      container.removeEventListener('pointerup', handlePointerEnd);
+      container.removeEventListener('pointercancel', handlePointerEnd);
+      container.removeEventListener('lostpointercapture', handlePointerEnd);
+      container.removeEventListener('pointermove', handlePointerDrag);
       container.removeEventListener('wheel', handleWheel);
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('blur', handleWindowBlur);
+      document.removeEventListener('visibilitychange', handleWindowBlur);
 
       for (const glowMesh of diagnosticGlowMeshesRef.current) {
         glowMesh.geometry.dispose();
@@ -2783,10 +2829,16 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
   };
 
   return (
-    <div className="relative w-full h-full select-none overflow-hidden bg-slate-950 font-sans">
+    <div className="relative w-full h-full select-none overflow-hidden bg-slate-950 font-sans" data-walking={cameraStyle !== 'orbit'}>
       {/* 3D WebGL Canvas */}
-      <div ref={mountRef} className="w-full h-full" />
-
+      <div ref={mountRef} className="room-canvas w-full h-full" />
+      {sceneUnavailable ? (
+        <div className="room-unavailable" role="status">
+          <Camera aria-hidden="true" />
+          <p className="font-semibold text-white">3D room unavailable</p>
+          <p>This browser couldn&apos;t start WebGL. You can still open the terminal and review mission guidance.</p>
+        </div>
+      ) : <>
       {cameraStyle !== 'orbit' && (
         <>
           <div className="pointer-events-none absolute left-1/2 top-1/2 z-[9] h-4 w-4 -translate-x-1/2 -translate-y-1/2" aria-hidden="true">
@@ -2795,8 +2847,23 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
             <span className="absolute left-0 top-1/2 h-px w-1.5 -translate-y-1/2 bg-cyan-200/80" />
             <span className="absolute right-0 top-1/2 h-px w-1.5 -translate-y-1/2 bg-cyan-200/80" />
           </div>
-          <div className="pointer-events-none absolute left-1/2 top-4 z-20 -translate-x-1/2 rounded-full border border-cyan-500/40 bg-slate-950/80 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-200 shadow-lg backdrop-blur-md">
-            {cameraStyle === 'firstPerson' ? 'First person' : 'Third person'}
+          <div className="room-dpad" role="group" aria-label="Touch movement">
+            {([
+              ['arrowup', 'Move forward', ''],
+              ['arrowleft', 'Move left', '-rotate-90'],
+              ['arrowdown', 'Move back', 'rotate-180'],
+              ['arrowright', 'Move right', 'rotate-90'],
+            ] as const).map(([direction, label, rotation]) => (
+              <button key={direction} type="button" className="ops-panel ops-button ops-icon" data-direction={direction} aria-label={label}
+                onPointerDown={(event) => {
+                  if (event.button !== 0) return;
+                  event.currentTarget.setPointerCapture(event.pointerId);
+                  touchDirections.current.set(event.pointerId, direction);
+                }}
+                onPointerUp={stopTouchMovement} onPointerCancel={stopTouchMovement} onLostPointerCapture={stopTouchMovement}>
+                <ChevronUp className={rotation} aria-hidden="true" />
+              </button>
+            ))}
           </div>
         </>
       )}
@@ -2824,102 +2891,42 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
         ))}
       </div>
 
-      {/* Top Left Camera Presets Bar */}
-      <div className="absolute top-2 left-2 right-2 z-10 flex max-w-max flex-wrap items-center gap-1 rounded-xl border border-slate-800 bg-slate-900/90 p-1.5 text-xs font-medium text-slate-300 shadow-xl sm:top-4 sm:left-4 sm:right-auto">
-        <span className="px-2 py-1 text-slate-400 flex items-center gap-1">
-          <Camera className="w-3.5 h-3.5 text-cyan-400" /> Angles:
-        </span>
-        <button
-          onClick={() => setCameraPreset('overview')}
-          className="px-2.5 py-1 rounded-lg hover:bg-slate-800 hover:text-white transition"
-        >
-          Overview
+      {/* Room camera and display controls */}
+      <div className="ops-panel room-camera" aria-label="Room camera tools" role="group">
+        <label className="room-camera-select">
+          <Camera aria-hidden="true" />
+          <span className="sr-only">Room camera</span>
+          <select value={cameraPreset === 'desk_2' && !sim.devices.has('PC-B') ? 'overview' : cameraPreset} onChange={(event) => {
+            const view = event.currentTarget.value;
+            if (view === 'firstPerson' || view === 'thirdPerson') setViewingStyle(view);
+            else setCameraPreset(view as Parameters<typeof setCameraPreset>[0]);
+          }}>
+            <option value="overview">Room overview</option>
+            <option value="rack_a">Rack A</option>
+            <option value="rack_b">Rack B</option>
+            <option value="rear">Rear servicing</option>
+            <option value="kvm">KVM drawer</option>
+            <option value="desk_1">Desk 1</option>
+            {sim.devices.has('PC-B') && <option value="desk_2">Desk 2</option>}
+            <option value="soc">Wall monitor</option>
+            <option value="firstPerson">First person</option>
+            <option value="thirdPerson">Third person</option>
+          </select>
+        </label>
+        <button type="button" className="ops-button ops-icon" onClick={toggleEquipmentLabels} aria-pressed={areEquipmentLabelsVisible} aria-label="Equipment labels" title="Equipment labels">
+          <Info aria-hidden="true" />
         </button>
-        <button
-          onClick={() => setCameraPreset('rack_a')}
-          className="px-2.5 py-1 rounded-lg hover:bg-slate-800 hover:text-cyan-400 transition"
-        >
-          Rack A
-        </button>
-        <button
-          onClick={() => setCameraPreset('rack_b')}
-          className="px-2.5 py-1 rounded-lg hover:bg-slate-800 hover:text-cyan-400 transition"
-        >
-          Rack B
-        </button>
-        <button
-          onClick={() => setCameraPreset('rear')}
-          className="px-2.5 py-1 rounded-lg hover:bg-slate-800 hover:text-amber-400 transition"
-          title="Rear Servicing Camera (Dual PSUs & I/O)"
-        >
-          Rear Servicing
-        </button>
-        <button
-          onClick={() => setCameraPreset('kvm')}
-          className="px-2.5 py-1 rounded-lg hover:bg-slate-800 hover:text-purple-400 transition"
-        >
-          KVM Drawer
-        </button>
-        <button
-          onClick={() => setCameraPreset('desk_1')}
-          className="px-2.5 py-1 rounded-lg hover:bg-slate-800 hover:text-emerald-400 transition"
-        >
-          Desk 1
-        </button>
-        {sim.devices.has('PC-B') && (
-          <button
-            onClick={() => setCameraPreset('desk_2')}
-            className="min-h-11 px-2.5 py-1 rounded-lg hover:bg-slate-800 hover:text-amber-400 transition sm:min-h-0"
-          >
-            Desk 2
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={toggleEquipmentLabels}
-          aria-pressed={areEquipmentLabelsVisible}
-          aria-label={`${areEquipmentLabelsVisible ? 'Hide' : 'Show'} equipment labels`}
-          className={`hidden min-h-11 items-center gap-1.5 rounded-lg border px-2.5 py-1 font-semibold transition sm:flex sm:min-h-0 ${
-            areEquipmentLabelsVisible
-              ? 'border-cyan-300/70 bg-cyan-400/20 text-cyan-200'
-              : 'border-slate-700 bg-slate-950/50 text-slate-300 hover:border-cyan-600 hover:text-cyan-300'
-          }`}
-        >
-          <Info className="h-3.5 w-3.5" />
-          <span>Labels</span>
-          <span className={`h-1.5 w-1.5 rounded-full ${areEquipmentLabelsVisible ? 'bg-cyan-300' : 'bg-slate-600'}`} />
-        </button>
-
-        <button
-          type="button"
-          onClick={() => {
-            sounds.playKeyClick();
-            const next = !isDiagnosticMode;
-            setIsDiagnosticMode(next);
-            showToast(
-              next
-                ? `Diagnostic View enabled: tracing neon cable paths for ${selectedRack}.`
-                : 'Diagnostic View disabled.'
-            );
-          }}
-          aria-pressed={isDiagnosticMode}
-          aria-label="Toggle diagnostic cable path view"
-          className={`flex min-h-11 items-center gap-1.5 rounded-lg border px-2.5 py-1 font-semibold transition sm:min-h-0 ${
-            isDiagnosticMode
-              ? 'border-emerald-300/80 bg-emerald-400/20 text-emerald-200 shadow-[0_0_12px_rgba(16,185,129,0.35)]'
-              : 'border-slate-700 bg-slate-950/50 text-slate-300 hover:border-emerald-500 hover:text-emerald-300'
-          }`}
-          title="Highlight active network cable paths with glowing neon lines when a rack is selected"
-        >
-          <Activity className="h-3.5 w-3.5" />
-          <span>Diagnostic</span>
-          <span className={`h-1.5 w-1.5 rounded-full ${isDiagnosticMode ? 'bg-emerald-300 animate-pulse' : 'bg-slate-600'}`} />
+        <button type="button" className="ops-button ops-icon" onClick={() => {
+          sounds.playKeyClick();
+          setIsDiagnosticMode(!isDiagnosticMode);
+        }} aria-pressed={isDiagnosticMode} aria-label="Diagnostic cable view" title="Diagnostic cable view">
+          <Activity aria-hidden="true" />
         </button>
       </div>
 
       {/* Diagnostic Mode HUD Bar (Rack Selector + Live Path Summary) */}
       {isDiagnosticMode && (
-        <div className="absolute top-16 left-4 z-10 flex flex-wrap items-center gap-2.5 rounded-xl border border-emerald-500/50 bg-slate-950/90 backdrop-blur-md px-3 py-2 text-xs shadow-[0_0_24px_rgba(0,245,255,0.18)]">
+        <div className="ops-panel room-diagnostics flex flex-wrap items-center gap-2.5 border-emerald-500/50 px-3 py-1.5 text-xs">
           <div className="flex items-center gap-1.5 font-mono text-[11px] font-bold text-cyan-300">
             <Activity className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
             <span>DIAGNOSTIC TRACE</span>
@@ -2961,24 +2968,8 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
         </div>
       )}
 
-      <button
-        type="button"
-        onClick={toggleEquipmentLabels}
-        aria-pressed={areEquipmentLabelsVisible}
-        aria-label={`${areEquipmentLabelsVisible ? 'Hide' : 'Show'} equipment labels`}
-        className={`absolute right-2 top-[270px] z-20 flex min-h-11 items-center gap-2 rounded-xl border px-3 text-xs font-semibold shadow-xl backdrop-blur-md transition sm:hidden ${
-          areEquipmentLabelsVisible
-            ? 'border-cyan-300/80 bg-cyan-950/95 text-cyan-100'
-            : 'border-slate-600 bg-slate-900/95 text-slate-200'
-        }`}
-      >
-        <Info className="h-4 w-4" />
-        <span>Equipment labels</span>
-        <span className={`h-2 w-2 rounded-full ${areEquipmentLabelsVisible ? 'bg-cyan-300' : 'bg-slate-500'}`} />
-      </button>
-
-      {/* Top Right Cabling & Active Color Badge */}
-      <div className="absolute top-4 right-4 z-10 flex items-center gap-3 p-2 rounded-xl bg-slate-900/90 border border-slate-800 shadow-xl text-xs">
+      {/* Cable telemetry */}
+      <div className="ops-panel room-cables flex flex-wrap items-center gap-x-3 gap-y-1 px-2.5 py-1.5 text-xs">
         <div className="flex items-center gap-2">
           <span className="w-2.5 h-2.5 rounded-full bg-cyan-400" />
           <span className="text-slate-300">
@@ -3051,21 +3042,25 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
       )}
 
       {/* CONSOLIDATED BOTTOM INTERACTION DOCK */}
-      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center max-w-5xl w-[96%]">
+      <div className="room-dock" data-expanded={!isDockCollapsed}>
         {/* Collapse / Expand Toggle Tab */}
         <button
           onClick={() => {
             sounds.playKeyClick();
             setIsDockCollapsed(!isDockCollapsed);
           }}
-          className="flex items-center gap-1.5 px-4 py-1.5 rounded-t-xl bg-slate-900/90 border-t border-x border-slate-700 text-xs font-semibold text-slate-300 hover:text-white transition shadow-lg"
+          type="button"
+          aria-expanded={!isDockCollapsed}
+          aria-controls={isDockCollapsed ? undefined : 'room-tools'}
+          className="ops-panel ops-button room-dock-toggle"
         >
-          {isDockCollapsed ? <ChevronUp className="w-3.5 h-3.5 text-cyan-400" /> : <ChevronDown className="w-3.5 h-3.5 text-cyan-400" />}
-          <span>{isDockCollapsed ? 'Expand 3D Server Room Studio Controls' : 'Hide Controls'}</span>
+          <Cpu aria-hidden="true" />
+          <span>{isDockCollapsed ? 'Room tools' : 'Hide room tools'}</span>
+          {isDockCollapsed ? <ChevronUp aria-hidden="true" /> : <ChevronDown aria-hidden="true" />}
         </button>
 
         {!isDockCollapsed && (
-          <div className="w-full rounded-2xl bg-slate-900/95 border border-slate-800 shadow-2xl overflow-hidden animate-fade-in flex flex-col">
+          <div id="room-tools" className="ops-panel room-dock-panel w-full">
             {/* Dock Navigation Tabs */}
             <div className="flex items-center justify-between px-4 py-2 bg-slate-950 border-b border-slate-800 text-xs">
               <div className="flex items-center gap-2 flex-wrap">
@@ -3846,19 +3841,14 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
 
       {/* Floating Instructions Pill */}
       <div className="absolute bottom-4 left-4 z-10 hidden md:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900/80 border border-slate-800 text-[11px] text-slate-400">
-        <span>
-          {cameraStyle === 'orbit'
-            ? 'Click ports to cable • Click cables to style • Extend rails • Press H for hints'
-            : 'WASD / Arrow keys to move • Drag to look • Open Camera Angles to change view'}
-        </span>
+        <span>{cameraStyle === 'orbit' ? 'Drag to orbit · Scroll to zoom' : 'WASD or arrows to move · Drag to look'}</span>
       </div>
 
       {/* Interactive Toast Notifications */}
       {toastMessage && (
-        <div className="absolute top-32 left-1/2 -translate-x-1/2 z-30 px-4 py-2 rounded-xl bg-slate-900/95 border border-cyan-500/50 text-xs text-cyan-200 shadow-2xl animate-fade-in flex items-center gap-2 max-w-lg text-center">
-          <span>{toastMessage}</span>
-        </div>
+        <div className="ops-panel room-toast" role="status"><span>{toastMessage}</span></div>
       )}
+      </>}
     </div>
   );
 };

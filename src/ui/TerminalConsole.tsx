@@ -20,6 +20,8 @@ interface TerminalConsoleProps {
   deviceId: string;
   onClose: () => void;
   onSwitchDevice: (deviceId: string) => void;
+  soundEnabled: boolean;
+  onToggleSound: () => void;
   onOpenCodeEditor?: (deviceAndPath: string) => void;
   transcripts?: Record<string, TerminalTranscriptLine[]>;
   onUpdateTranscript?: (deviceId: string, lines: TerminalTranscriptLine[]) => void;
@@ -31,6 +33,8 @@ export const TerminalConsole: React.FC<TerminalConsoleProps> = ({
   deviceId,
   onClose,
   onSwitchDevice,
+  soundEnabled,
+  onToggleSound,
   onOpenCodeEditor,
   transcripts,
   onUpdateTranscript,
@@ -40,7 +44,6 @@ export const TerminalConsole: React.FC<TerminalConsoleProps> = ({
   const [historyLines, setHistoryLines] = useState<TerminalTranscriptLine[]>([]);
   const [inputVal, setInputVal] = useState('');
   const [historyIdx, setHistoryIdx] = useState(-1);
-  const [soundEnabled, setSoundEnabled] = useState(true);
   const [showCheatsheet, setShowCheatsheet] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
 
@@ -82,10 +85,9 @@ export const TerminalConsole: React.FC<TerminalConsoleProps> = ({
     }
   }, [sim, deviceId]);
 
-  // Focus input on click
   useEffect(() => {
-    inputRef.current?.focus();
-  }, [deviceId, historyLines]);
+    if (!window.matchMedia('(pointer: coarse)').matches) inputRef.current?.focus();
+  }, [session]);
 
   // Auto scroll to bottom
   useEffect(() => {
@@ -105,6 +107,7 @@ export const TerminalConsole: React.FC<TerminalConsoleProps> = ({
 
     // Enter
     if (e.key === 'Enter') {
+      if (e.nativeEvent.isComposing || e.keyCode === 229) return;
       e.preventDefault();
       const cmd = inputVal;
       const res = session.execute(cmd);
@@ -277,40 +280,20 @@ export const TerminalConsole: React.FC<TerminalConsoleProps> = ({
 
   return (
     <div
-      className={`fixed z-40 flex flex-col bg-slate-950/95 backdrop-blur-xl border border-slate-700 shadow-2xl transition-all duration-200 ${
-        isMaximized
-          ? 'inset-2 rounded-2xl'
-          : 'bottom-4 right-4 w-[680px] h-[520px] rounded-2xl max-w-[calc(100vw-32px)] max-h-[calc(100vh-32px)]'
-      }`}
+      role="region"
+      aria-label={`${session.device.id} terminal`}
+      className="terminal-window flex flex-col bg-slate-950/95 backdrop-blur-xl border border-slate-700 shadow-2xl rounded-xl"
+      data-maximized={isMaximized}
     >
       {/* Terminal Titlebar */}
-      <div className="flex items-center justify-between px-4 py-2.5 bg-slate-900 border-b border-slate-800 rounded-t-2xl">
-        <div className="flex items-center gap-2.5">
-          <TerminalIcon className="w-4 h-4 text-cyan-400" />
-          <span className="font-mono text-xs font-semibold text-slate-200 flex items-center gap-2">
-            <span>Terminal:</span>
-            <span className="px-2 py-0.5 rounded bg-cyan-950/80 text-cyan-300 border border-cyan-800/60">
-              {session.device.hostname} ({session.device.id})
-            </span>
-          </span>
-
-          {/* Quick Device Switcher */}
-          <div className="hidden sm:flex items-center gap-1 ml-2 pl-2 border-l border-slate-700">
-            {Array.from(sim.devices.values()).map((d) => (
-              <button
-                key={d.id}
-                onClick={() => onSwitchDevice(d.id)}
-                className={`px-2 py-0.5 rounded text-[11px] font-mono transition ${
-                  d.id === deviceId
-                    ? 'bg-cyan-500 text-slate-950 font-bold'
-                    : 'bg-slate-800 text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                {d.hostname || d.id}
-              </button>
-            ))}
-          </div>
-        </div>
+      <div className="flex items-center justify-between gap-2 px-2 sm:px-3 py-1 bg-slate-900 border-b border-slate-800 rounded-t-xl">
+        <label className="flex min-w-0 items-center gap-1.5 text-cyan-300">
+          <TerminalIcon className="size-4 shrink-0" aria-hidden="true" />
+          <span className="sr-only">Terminal device</span>
+          <select className="min-w-0 min-h-11 rounded border border-slate-700 bg-slate-950 px-2 text-xs font-mono" value={deviceId} onChange={(event) => onSwitchDevice(event.currentTarget.value)}>
+            {Array.from(sim.devices.values()).map((device) => <option key={device.id} value={device.id}>{device.hostname || device.id}</option>)}
+          </select>
+        </label>
 
         {/* Action Controls */}
         <div className="flex items-center gap-1.5 text-slate-400">
@@ -324,10 +307,9 @@ export const TerminalConsole: React.FC<TerminalConsoleProps> = ({
             <BookOpen className="w-3.5 h-3.5" />
           </button>
           <button
-            onClick={() => {
-              setSoundEnabled(!soundEnabled);
-              sounds.enabled = !soundEnabled;
-            }}
+            onClick={onToggleSound}
+            aria-label="Terminal audio"
+            aria-pressed={soundEnabled}
             title={soundEnabled ? 'Mute Audio' : 'Enable Audio'}
             className="p-1.5 rounded-lg hover:bg-slate-800 hover:text-slate-200 transition"
           >
@@ -351,7 +333,7 @@ export const TerminalConsole: React.FC<TerminalConsoleProps> = ({
       </div>
 
       {/* Main Terminal Body */}
-      <div className="relative flex-1 flex overflow-hidden">
+      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden sm:flex-row">
         {/* Monospace Output Screen */}
         <div
           ref={scrollRef}
@@ -381,8 +363,9 @@ export const TerminalConsole: React.FC<TerminalConsoleProps> = ({
                 value={inputVal}
                 onChange={(e) => setInputVal(e.target.value)}
                 onKeyDown={handleKeyDown}
-                className="w-full bg-transparent outline-none text-emerald-400 font-mono caret-cyan-400 text-xs"
-                autoFocus
+                aria-label="Terminal command"
+                enterKeyHint="send"
+                className="w-full bg-transparent outline-none text-emerald-400 font-mono caret-cyan-400 text-base sm:text-xs"
                 spellCheck={false}
                 autoCapitalize="off"
                 autoComplete="off"
@@ -393,7 +376,7 @@ export const TerminalConsole: React.FC<TerminalConsoleProps> = ({
 
         {/* Command Cheatsheet Side Drawer */}
         {showCheatsheet && (
-          <div className="w-64 border-l border-slate-800 bg-slate-900/90 p-3 text-xs overflow-y-auto font-mono text-slate-300">
+          <div className="w-full max-h-[46%] shrink-0 border-t sm:border-t-0 sm:border-l sm:max-h-none sm:w-64 border-slate-800 bg-slate-900/90 p-3 text-xs overflow-y-auto font-mono text-slate-300">
             <div className="font-sans font-bold text-cyan-400 mb-2 flex items-center gap-1.5">
               <BookOpen className="w-3.5 h-3.5" /> Cheatsheet
             </div>

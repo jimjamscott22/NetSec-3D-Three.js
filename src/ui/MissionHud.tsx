@@ -1,275 +1,117 @@
-import React, { useState } from 'react';
-import { NetworkSim } from '../sim/core/network_sim';
-import { ObjectiveState, ScenarioDef, DebriefView } from '../sim/types';
-import { sounds } from '../utils/audio';
-import {
-  CheckCircle2,
-  Circle,
-  AlertCircle,
-  HelpCircle,
-  Lock,
-  ChevronDown,
-  ChevronUp,
-  Award,
-  ArrowRight,
-  RotateCcw,
-  ShieldCheck,
-  FileText,
-  Code2,
-  Terminal,
-  Lightbulb,
-} from 'lucide-react';
+import { useState, type ReactNode } from 'react';
+import { ArrowRight, BookOpen, Check, ChevronDown, Circle, Code2, FileText, ListChecks, Lock, RotateCcw, Terminal } from 'lucide-react';
+import type { ObjectiveState, ScenarioDef } from '../sim/types';
+import { GameDialog } from './GameDialog';
 
 interface MissionHudProps {
-  sim: NetworkSim;
   scenario: ScenarioDef;
   objectives: ObjectiveState[];
-  onOpenReport?: () => void;
-  onOpenCodeEditor?: () => void;
-  onOpenHint?: () => void;
+  debrief: string;
+  nextScenario?: ScenarioDef;
+  onOpenReport: () => void;
+  onOpenCodeEditor: () => void;
+  onOpenTerminal: (id: string) => void;
   onSelectMission: (scenarioId: string) => void;
-  onRestartMission: () => void;
-  allScenarios: ScenarioDef[];
+  onRestartMission: () => Promise<void>;
+  isRestartBusy: boolean;
 }
 
-export const MissionHud: React.FC<MissionHudProps> = ({
-  sim,
-  scenario,
-  objectives,
-  onOpenReport,
-  onOpenCodeEditor,
-  onOpenHint,
-  onSelectMission,
-  onRestartMission,
-  allScenarios,
-}) => {
-  const [isBriefingOpen, setIsBriefingOpen] = useState(false);
-  const [activeHint, setActiveHint] = useState<string | null>(null);
-  const [showDebrief, setShowDebrief] = useState(false);
+export function MissionHud({ scenario, objectives, debrief, nextScenario, onOpenReport, onOpenCodeEditor, onOpenTerminal, onSelectMission, onRestartMission, isRestartBusy }: MissionHudProps) {
+  const [expanded, setExpanded] = useState(false);
+  const [dialog, setDialog] = useState<'briefing' | 'restart' | 'debrief' | null>(null);
+  const passed = objectives.filter((objective) => objective.passed).length;
+  const verified = objectives.length > 0 && passed === objectives.length;
+  const next = objectives.find((objective) => !objective.passed && !objective.locked);
+  const guidance = next?.guidance;
+  const closeDialog = () => setDialog(null);
 
-  // Check if all completed
-  const allPassed = objectives.length > 0 && objectives.every((o) => o.passed);
-
-  const handleRevealHint = () => {
-    sounds.playKeyClick();
-    if (onOpenHint) {
-      onOpenHint();
-      return;
-    }
-    // Find first failing objective that has a hint
-    const failingWithHint = objectives.find((o) => !o.passed && !o.locked && o.hint);
-    if (failingWithHint) {
-      setActiveHint(failingWithHint.hint);
-    } else {
-      // General hint
-      const general = scenario.hints?.[0]?.text || 'Review network configurations and interface IP assignments.';
-      setActiveHint(general);
-    }
-  };
-
-  const debriefData = sim.debriefView();
+  const deviceId = guidance?.actionType === 'terminal' ? guidance.targetDevice : undefined;
+  const missionToolClass = deviceId || verified ? 'ops-button' : 'ops-button ops-button-accent';
+  let missionTool: ReactNode;
+  if (scenario.id === 'm2_log_triage') {
+    missionTool = <button type="button" className={missionToolClass} onClick={onOpenReport}><FileText aria-hidden="true" /> Incident report</button>;
+  } else if (scenario.id === 'm3_web_patch') {
+    missionTool = <button type="button" className={missionToolClass} onClick={onOpenCodeEditor}><Code2 aria-hidden="true" /> Patch editor</button>;
+  }
 
   return (
     <>
-      {/* Top Center Mission HUD Bar */}
-      <div className="absolute top-16 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center max-w-xl w-[92%] sm:w-auto">
-        <div className="flex items-center gap-3 px-4 py-2 rounded-2xl bg-slate-900/90 backdrop-blur-xl border border-slate-700/80 shadow-2xl">
-          <div className="flex items-center gap-2">
-            <span className="px-2 py-0.5 rounded-md bg-cyan-950 text-cyan-400 font-mono text-xs font-bold border border-cyan-800/80">
-              M{scenario.sequence}
-            </span>
-            <span className="font-bold text-slate-100 text-sm">{scenario.title}</span>
+      <aside className="mission-hud ops-panel" aria-label="Mission objectives" data-complete={verified}>
+        <div className="mission-summary">
+          <div className="mission-kicker">
+            <span className="ops-label">Mission <span className="tabular-nums">{String(scenario.sequence).padStart(2, '0')}</span></span>
+            <span className="mission-status"><span aria-hidden="true" />{verified ? 'Verified' : objectives.length ? 'In progress' : 'Initializing'}</span>
           </div>
-
-          <button
-            onClick={() => setIsBriefingOpen(!isBriefingOpen)}
-            className="flex items-center gap-1 text-xs text-slate-400 hover:text-cyan-300 transition pl-2 border-l border-slate-700"
-          >
-            <span>Briefing</span>
-            {isBriefingOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-          </button>
-
-          <button
-            onClick={handleRevealHint}
-            className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-xs font-medium transition"
-          >
-            <HelpCircle className="w-3.5 h-3.5" />
-            <span>Hint (H)</span>
-          </button>
-
-          {scenario.id === 'm2_log_triage' && onOpenReport && (
-            <button
-              onClick={onOpenReport}
-              className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/40 text-xs font-medium transition"
-            >
-              <FileText className="w-3.5 h-3.5" />
-              <span>Incident Report</span>
-            </button>
-          )}
-
-          {scenario.id === 'm3_web_patch' && onOpenCodeEditor && (
-            <button
-              onClick={onOpenCodeEditor}
-              className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/40 text-xs font-medium transition"
-            >
-              <Code2 className="w-3.5 h-3.5" />
-              <span>Code Editor</span>
-            </button>
-          )}
-
-          {allPassed && (
-            <button
-              onClick={() => setShowDebrief(true)}
-              className="flex items-center gap-1 px-3 py-1 rounded-lg bg-emerald-500 text-slate-950 font-bold text-xs animate-pulse shadow-lg shadow-emerald-500/20 transition"
-            >
-              <Award className="w-3.5 h-3.5" />
-              <span>Debrief</span>
-            </button>
-          )}
+          <h1>{scenario.title}</h1>
+          <div className="mission-progress-label">
+            <span>Objectives verified</span>
+            <span className="tabular-nums" aria-live="polite">{passed} / {objectives.length}</span>
+          </div>
+          <div className="mission-meter" aria-hidden="true">
+            {objectives.map((objective) => <span key={objective.id} data-passed={objective.passed} data-current={objective.id === next?.id} />)}
+          </div>
         </div>
 
-        {/* Briefing Card Popup */}
-        {isBriefingOpen && (
-          <div className="mt-2 p-4 rounded-xl bg-slate-900/95 backdrop-blur-xl border border-slate-700 shadow-2xl text-xs text-slate-300 max-w-lg animate-fade-in">
-            <div className="font-semibold text-cyan-400 mb-1 flex items-center gap-1.5">
-              <FileText className="w-4 h-4" /> Mission Ticket & Briefing
-            </div>
-            <p className="leading-relaxed text-slate-300">{scenario.briefing}</p>
+        <div className="mission-next">
+          {verified ? <Check className="mission-next-icon" aria-hidden="true" /> : <ListChecks className="mission-next-icon" aria-hidden="true" />}
+          <div className="min-w-0">
+            <p className="ops-label">{verified ? 'Mission complete' : 'Next objective'}</p>
+            <p className="mission-next-text">{verified ? 'All objectives verified. Your debrief is ready.' : next?.description ?? (objectives.length ? 'Complete the prerequisites to unlock the next objective.' : 'Preparing the mission workspace…')}</p>
+            {next?.detail && <p className="mission-detail">{next.detail}</p>}
           </div>
+        </div>
+
+        <div className="mission-tools">
+          {verified ? (
+            <button type="button" className="ops-button ops-button-complete" onClick={() => setDialog('debrief')}>View debrief <ArrowRight aria-hidden="true" /></button>
+          ) : deviceId && (
+            <button type="button" className="ops-button ops-button-accent" onClick={() => onOpenTerminal(deviceId)}><Terminal aria-hidden="true" /> {deviceId} console</button>
+          )}
+          {missionTool}
+          <button type="button" className="ops-button" onClick={() => setDialog('briefing')}><BookOpen aria-hidden="true" /> Briefing</button>
+        </div>
+
+        {expanded && (
+          <ol className="mission-checklist" id="mission-checklist" aria-label="All objectives">
+            {objectives.map((objective) => (
+              <li key={objective.id} data-state={objective.passed ? 'verified' : objective.locked ? 'locked' : objective.id === next?.id ? 'current' : 'open'}>
+                {objective.passed ? <Check aria-hidden="true" /> : objective.locked ? <Lock aria-hidden="true" /> : <Circle aria-hidden="true" />}
+                <span><span className="sr-only">{objective.passed ? 'Verified: ' : objective.locked ? 'Locked: ' : objective.id === next?.id ? 'Current: ' : 'Open: '}</span>{objective.description}</span>
+              </li>
+            ))}
+          </ol>
         )}
 
-        {/* Hint Notification Card */}
-        {activeHint && (
-          <div className="mt-2 p-3.5 rounded-xl bg-amber-950/90 backdrop-blur-xl border border-amber-600/50 shadow-2xl text-xs text-amber-200 max-w-lg flex items-start gap-2.5 animate-fade-in">
-            <HelpCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-            <div className="flex-1">
-              <div className="font-bold text-amber-300 mb-0.5">Diagnostic Hint:</div>
-              <p className="leading-relaxed">{activeHint}</p>
-            </div>
-            <button
-              onClick={() => setActiveHint(null)}
-              className="text-amber-400 hover:text-white text-xs px-1.5 py-0.5"
-            >
-              ✕
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* Left Objectives HUD Drawer */}
-      <div className="absolute top-20 left-4 z-20 w-80 max-h-[calc(100vh-140px)] flex flex-col rounded-2xl bg-slate-900/90 backdrop-blur-xl border border-slate-800 shadow-2xl overflow-hidden">
-        <div className="px-3.5 py-2.5 bg-slate-800/80 border-b border-slate-700/60 flex items-center justify-between">
-          <span className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
-            <ShieldCheck className="w-4 h-4 text-cyan-400" />
-            <span>Mission Objectives</span>
-          </span>
-          <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-900 text-cyan-400 border border-slate-700">
-            {objectives.filter((o) => o.passed).length} / {objectives.length}
-          </span>
-        </div>
-
-        <div className="p-3 space-y-2.5 overflow-y-auto text-xs">
-          {objectives.map((obj) => (
-            <div
-              key={obj.id}
-              className={`p-2.5 rounded-xl border transition-all ${
-                obj.passed
-                  ? 'bg-emerald-950/30 border-emerald-500/40 text-emerald-300'
-                  : obj.locked
-                  ? 'bg-slate-950/40 border-slate-800 text-slate-500 opacity-60'
-                  : 'bg-slate-950/60 border-slate-800 text-slate-300'
-              }`}
-            >
-              <div className="flex items-start gap-2">
-                {obj.passed ? (
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                ) : obj.locked ? (
-                  <Lock className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
-                ) : (
-                  <Circle className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
-                )}
-
-                <div className="flex-1">
-                  <div className="leading-snug">{obj.description}</div>
-                  {obj.detail && !obj.passed && !obj.locked && (
-                    <div className="text-[11px] text-amber-400/90 font-mono mt-1">Status: {obj.detail}</div>
-                  )}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* HUD Footer Quick Action */}
-        <div className="px-3 py-2 bg-slate-950/80 border-t border-slate-800 flex items-center justify-between text-[11px] text-slate-400">
-          <button
-            onClick={onRestartMission}
-            className="flex items-center gap-1 hover:text-red-400 transition"
-          >
-            <RotateCcw className="w-3 h-3" />
-            <span>Restart</span>
+        <div className="mission-footer">
+          <button type="button" className="ops-button" onClick={() => setExpanded(!expanded)} aria-expanded={expanded} aria-controls={expanded ? 'mission-checklist' : undefined} disabled={!objectives.length}>
+            Checklist <ChevronDown className={expanded ? 'rotate-180' : undefined} aria-hidden="true" />
           </button>
-
-          {onOpenHint && (
-            <button
-              onClick={() => {
-                sounds.playKeyClick();
-                onOpenHint();
-              }}
-              className="text-amber-400/90 hover:text-amber-300 flex items-center gap-1 font-medium transition"
-            >
-              <Lightbulb className="w-3 h-3 text-amber-400" />
-              <span>Step Guidance [H]</span>
-            </button>
-          )}
+          <button type="button" className="ops-button" onClick={() => setDialog('restart')} disabled={isRestartBusy}><RotateCcw aria-hidden="true" /> Restart</button>
         </div>
-      </div>
+      </aside>
 
-      {/* Debrief Modal Card */}
-      {showDebrief && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
-          <div className="max-w-xl w-full rounded-2xl bg-slate-900 border border-emerald-500/50 shadow-2xl p-6 text-slate-200">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
-                <Award className="w-6 h-6" />
-              </div>
-              <div>
-                <h2 className="text-lg font-bold text-white">Mission Accomplished!</h2>
-                <p className="text-xs text-emerald-400 font-mono">{scenario.title} — Verified</p>
-              </div>
-            </div>
-
-            <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 text-xs leading-relaxed text-slate-300 mb-5">
-              <h3 className="font-semibold text-cyan-400 mb-1">Debrief & Technical Takeaways:</h3>
-              <p>{debriefData?.debrief || scenario.debrief}</p>
-            </div>
-
-            <div className="flex items-center justify-between pt-2 border-t border-slate-800">
-              <button
-                onClick={() => setShowDebrief(false)}
-                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition"
-              >
-                Close & Explore
-              </button>
-
-              {scenario.sequence < allScenarios.length ? (
-                <button
-                  onClick={() => {
-                    const next = allScenarios.find((s) => s.sequence === scenario.sequence + 1);
-                    if (next) onSelectMission(next.id);
-                  }}
-                  className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 shadow-lg shadow-emerald-500/20 transition"
-                >
-                  <span>Next: Mission {scenario.sequence + 1}</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </button>
-              ) : (
-                <span className="text-xs text-emerald-400 font-semibold">Campaign Complete! 🎉</span>
-              )}
-            </div>
-          </div>
-        </div>
+      {dialog === 'briefing' && (
+        <GameDialog title={scenario.title} eyebrow={`Mission ${String(scenario.sequence).padStart(2, '0')} / Briefing`} onClose={closeDialog} footer={<button type="button" className="ops-button ops-button-accent" onClick={closeDialog}>Back to mission <ArrowRight aria-hidden="true" /></button>}>
+          <p>{scenario.briefing}</p>
+        </GameDialog>
+      )}
+      {dialog === 'restart' && (
+        <GameDialog title="Restart this mission?" eyebrow="Reset workspace" tone="caution" onClose={closeDialog} footer={<>
+          <button type="button" className="ops-button" onClick={closeDialog}>Keep playing</button>
+          <button type="button" className="ops-button ops-button-caution" disabled={isRestartBusy} onClick={onRestartMission}><RotateCcw aria-hidden="true" /> {isRestartBusy ? 'Restarting…' : 'Restart mission'}</button>
+        </>}>
+          <p>The current mission returns to its starting state. Saved sessions and completed missions are kept.</p>
+        </GameDialog>
+      )}
+      {dialog === 'debrief' && verified && (
+        <GameDialog title={nextScenario ? 'Mission verified' : 'Campaign complete'} eyebrow={`Mission ${String(scenario.sequence).padStart(2, '0')} / Debrief`} tone="complete" onClose={closeDialog} footer={<>
+          <button type="button" className="ops-button" onClick={closeDialog}>Return to room</button>
+          {nextScenario && <button type="button" className="ops-button ops-button-complete" onClick={() => onSelectMission(nextScenario.id)}>Launch mission {nextScenario.sequence} <ArrowRight aria-hidden="true" /></button>}
+        </>}>
+          <h3 className="mb-2 font-semibold text-white">{scenario.title}</h3>
+          <p>{debrief}</p>
+        </GameDialog>
       )}
     </>
   );
-};
+}
