@@ -12,19 +12,8 @@ import { ContextualHintModal } from './ui/ContextualHintModal';
 import { SessionManagerModal } from './ui/SessionManagerModal';
 import { sessionApi, SavedSessionRecord, SavedSessionSummary } from './services/sessionApi';
 import { sounds } from './utils/audio';
-import {
-  Shield,
-  Terminal,
-  Layers,
-  FileText,
-  Code2,
-  Volume2,
-  VolumeX,
-  Lightbulb,
-  Database,
-  Save,
-  Check,
-} from 'lucide-react';
+import { Database } from 'lucide-react';
+import { GameToolbar } from './ui/GameToolbar';
 
 export const App: React.FC = () => {
   // Load the first mission immediately so the 3D room's first build sees its devices.
@@ -35,6 +24,7 @@ export const App: React.FC = () => {
   }, []);
 
   const [currentScenarioId, setCurrentScenarioId] = useState<string>(ALL_SCENARIOS[0].id);
+  const [missionRun, setMissionRun] = useState(0);
   const [objectives, setObjectives] = useState<ObjectiveState[]>([]);
   const [simRevision, setSimRevision] = useState<number>(0);
   const [completedMissionIds, setCompletedMissionIds] = useState<string[]>(() => {
@@ -151,6 +141,7 @@ export const App: React.FC = () => {
     (record: SavedSessionRecord) => {
       const snap = record.snapshot;
       const scen = ALL_SCENARIOS.find((s) => s.id === snap?.scenarioId) || ALL_SCENARIOS[0];
+      setMissionRun((run) => run + 1);
       setCurrentScenarioId(scen.id);
       setSelectedPort(null);
       setIsLogViewerOpen(false);
@@ -179,28 +170,18 @@ export const App: React.FC = () => {
   const loadScenario = useCallback(
     (scenarioId: string, options?: { skipAutosave?: boolean }) => {
       const scen = ALL_SCENARIOS.find((s) => s.id === scenarioId) || SCENARIO_M1;
+      setMissionRun((run) => run + 1);
       setCurrentScenarioId(scen.id);
       setSelectedPort(null);
       setIsLogViewerOpen(false);
       setIsCodeEditorOpen(false);
       setIsHintModalOpen(false);
       setTerminalTranscripts({});
+      setActiveTerminalDevice(null);
 
       sim.loadScenario(scen);
       setObjectives(sim.objectiveStates());
       setSimRevision((r) => r + 1);
-
-      // Auto open the relevant console so each mission starts with an actionable next step.
-      if (scen.id === 'm0_orientation') {
-        setActiveTerminalDevice('PC-A');
-        setIsHintModalOpen(true);
-      } else if (scen.id === 'm1_vlan_ping') {
-        setActiveTerminalDevice('R1');
-      } else if (scen.id === 'm2_log_triage') {
-        setActiveTerminalDevice('SOC-PC');
-      } else if (scen.id === 'm3_web_patch') {
-        setActiveTerminalDevice('PC-1');
-      }
 
       if (!options?.skipAutosave && hydratedRef.current) {
         scheduleAutosave();
@@ -487,9 +468,9 @@ export const App: React.FC = () => {
   // Keyboard shortcut listener ('H' for contextual step guidance)
   useEffect(() => {
     const handleGlobalKey = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
-        return;
-      }
+      if (e.defaultPrevented || e.isComposing || e.repeat || e.altKey || e.ctrlKey || e.metaKey) return;
+      if (e.target instanceof HTMLElement && e.target.closest('input, textarea, select, [contenteditable]')) return;
+      if (isSessionModalOpen || isLogViewerOpen || isCodeEditorOpen || document.querySelector('dialog[open]')) return;
       if (e.key === 'h' || e.key === 'H') {
         e.preventDefault();
         setIsHintModalOpen((prev) => !prev);
@@ -497,160 +478,50 @@ export const App: React.FC = () => {
     };
     window.addEventListener('keydown', handleGlobalKey);
     return () => window.removeEventListener('keydown', handleGlobalKey);
-  }, []);
+  }, [isSessionModalOpen, isLogViewerOpen, isCodeEditorOpen]);
+
+  const toggleAudio = () => {
+    sounds.enabled = !soundEnabled;
+    setSoundEnabled(!soundEnabled);
+  };
 
   return (
-    <div className="relative w-screen h-screen overflow-hidden bg-slate-950 font-sans flex flex-col">
-      {/* Top Application Navigation Bar */}
-      <header className="h-12 border-b border-slate-800 bg-slate-950/90 backdrop-blur-md px-4 flex items-center justify-between z-30 select-none">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center text-slate-950 font-black shadow-lg shadow-cyan-500/20">
-              <Shield className="w-4 h-4 fill-current" />
-            </div>
-            <div>
-              <span className="font-bold text-white text-sm tracking-tight flex items-center gap-1.5">
-                <span>NetSec 3D Simulator</span>
-                <span className="text-[10px] px-1.5 py-0.2 rounded bg-cyan-950 text-cyan-400 border border-cyan-800 font-mono font-semibold">
-                  v1.0
-                </span>
-              </span>
-            </div>
-          </div>
-
-          {/* Mission Selector Button */}
-          <button
-            onClick={() => {
-              sounds.playKeyClick();
-              setIsMissionSelectOpen(true);
-            }}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-xs font-semibold text-slate-200 transition"
-          >
-            <Layers className="w-3.5 h-3.5 text-cyan-400" />
-            <span>M{currentScenario.sequence}: {currentScenario.title}</span>
-          </button>
-        </div>
-
-        {/* Global Action Tools */}
-        <div className="flex items-center gap-2">
-          {/* Quick Save + Sessions Vault */}
-          <div className="flex items-center rounded-xl bg-slate-900 border border-slate-700/80 overflow-hidden">
-            <button
-              onClick={handleQuickSave}
-              disabled={isSessionBusy}
-              title="Save current session snapshot to SQLite"
-              className="flex items-center gap-1.5 px-2.5 py-1.5 hover:bg-slate-800 text-xs font-semibold text-emerald-300 border-r border-slate-700/80 transition disabled:opacity-50"
-            >
-              {saveStatusText === 'saved' ? (
-                <Check className="w-3.5 h-3.5 text-emerald-400" />
-              ) : (
-                <Save className="w-3.5 h-3.5 text-emerald-400" />
-              )}
-              <span className="hidden md:inline">
-                {saveStatusText === 'saving' ? 'Saving...' : 'Save'}
-              </span>
-            </button>
-            <button
-              onClick={() => {
-                sounds.playKeyClick();
-                setIsSessionModalOpen(true);
-              }}
-              title="Manage SQLite Saved Sessions & Progress"
-              className="flex items-center gap-1.5 px-2.5 py-1.5 hover:bg-slate-800 text-xs font-semibold text-slate-200 transition"
-            >
-              <Database className="w-3.5 h-3.5 text-cyan-400" />
-              <span>Sessions</span>
-              {savedSessions.length > 0 && (
-                <span className="px-1.5 py-0.2 rounded bg-cyan-950 text-cyan-300 border border-cyan-800/80 font-mono text-[10px]">
-                  {savedSessions.length}
-                </span>
-              )}
-            </button>
-          </div>
-
-          {/* Quick Terminal Launch */}
-          <button
-            onClick={() => {
-              sounds.playKeyClick();
-              if (activeTerminalDevice) {
-                setActiveTerminalDevice(null);
-              } else {
-                const firstDev = Array.from(sim.devices.keys())[0] || 'R1';
-                setActiveTerminalDevice(firstDev);
-              }
-            }}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition ${
-              activeTerminalDevice
-                ? 'bg-cyan-500 text-slate-950 border-cyan-400 font-bold'
-                : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border-slate-700'
-            }`}
-          >
-            <Terminal className="w-3.5 h-3.5" />
-            <span>CLI Terminal</span>
-          </button>
-
-          {/* M2 SOC Log Triage / Threat Map */}
-          {currentScenario.id === 'm2_log_triage' && (
-            <button
-              onClick={() => {
-                sounds.playKeyClick();
-                setIsLogViewerOpen(true);
-              }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-sky-950 hover:bg-sky-900 border border-sky-700 text-sky-300 text-xs font-semibold transition"
-            >
-              <FileText className="w-3.5 h-3.5" />
-              <span>SOC Logs & Threat Map</span>
-            </button>
-          )}
-
-          {/* M3 Web Code Patch Editor */}
-          {currentScenario.id === 'm3_web_patch' && (
-            <button
-              onClick={() => {
-                sounds.playKeyClick();
-                setIsCodeEditorOpen(true);
-              }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-950 hover:bg-indigo-900 border border-indigo-700 text-indigo-300 text-xs font-semibold transition"
-            >
-              <Code2 className="w-3.5 h-3.5" />
-              <span>Patch Editor</span>
-            </button>
-          )}
-
-          {/* Contextual Step Guidance Button */}
-          <button
-            onClick={() => {
-              sounds.playKeyClick();
-              setIsHintModalOpen((prev) => !prev);
-            }}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition ${
-              isHintModalOpen
-                ? 'bg-amber-500 text-slate-950 border-amber-400 font-bold'
-                : 'bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border-amber-500/40'
-            }`}
-            title="Contextual Step-by-Step Guidance (Press 'H')"
-          >
-            <Lightbulb className="w-3.5 h-3.5 text-amber-400" />
-            <span>Guidance (H)</span>
-          </button>
-
-          {/* Sound Toggle */}
-          <button
-            onClick={() => {
-              const next = !soundEnabled;
-              setSoundEnabled(next);
-              sounds.enabled = next;
-            }}
-            title={soundEnabled ? 'Mute Audio' : 'Unmute Audio'}
-            className="p-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-400 hover:text-slate-200 transition"
-          >
-            {soundEnabled ? <Volume2 className="w-4 h-4 text-cyan-400" /> : <VolumeX className="w-4 h-4" />}
-          </button>
-        </div>
-      </header>
+    <div className="game-shell">
+      <GameToolbar
+        soundEnabled={soundEnabled}
+        terminalOpen={!!activeTerminalDevice}
+        guideOpen={isHintModalOpen}
+        saveStatus={saveStatusText}
+        saveDisabled={isSessionBusy}
+        onMissions={() => { sounds.playKeyClick(); setIsMissionSelectOpen(true); }}
+        onSave={handleQuickSave}
+        onSessions={() => { sounds.playKeyClick(); setIsSessionModalOpen(true); }}
+        onTerminal={() => {
+          sounds.playKeyClick();
+          const deviceId = sim.devices.keys().next().value;
+          setActiveTerminalDevice(activeTerminalDevice ? null : deviceId ?? null);
+          scheduleAutosave();
+        }}
+        onGuide={() => setIsHintModalOpen((open) => !open)}
+        onSound={toggleAudio}
+      />
 
       {/* Main Viewport: 3D Server Room */}
-      <main className="relative flex-1 w-full h-full overflow-hidden">
+      <main className="game-stage">
+        {/* Live Mission Objectives HUD */}
+        <MissionHud
+          key={missionRun}
+          scenario={currentScenario}
+          objectives={objectives}
+          debrief={sim.debriefView()?.debrief || currentScenario.debrief || 'All mission objectives were verified.'}
+          nextScenario={ALL_SCENARIOS[ALL_SCENARIOS.indexOf(currentScenario) + 1]}
+          onOpenReport={() => setIsLogViewerOpen(true)}
+          onOpenCodeEditor={() => setIsCodeEditorOpen(true)}
+          onOpenTerminal={handleOpenTerminal}
+          onSelectMission={loadScenario}
+          onRestartMission={handleRestartFreshMission}
+          isRestartBusy={isSessionBusy}
+        />
         <ServerRoom3D
           sim={sim}
           scenarioId={currentScenarioId}
@@ -667,31 +538,17 @@ export const App: React.FC = () => {
         />
 
         {/* SQLite Save / Restore Notification Pill */}
-        {sessionBanner && (
-          <div className="absolute top-4 right-4 z-30 px-3.5 py-2 rounded-xl bg-slate-900/95 border border-emerald-500/50 text-xs text-emerald-300 shadow-2xl flex items-center gap-2 animate-fade-in">
-            <Database className="w-3.5 h-3.5 text-emerald-400" />
-            <span>{sessionBanner}</span>
-          </div>
-        )}
-
-        {/* Live Mission Objectives HUD */}
-        <MissionHud
-          sim={sim}
-          scenario={currentScenario}
-          objectives={objectives}
-          onOpenReport={() => setIsLogViewerOpen(true)}
-          onOpenCodeEditor={() => setIsCodeEditorOpen(true)}
-          onOpenHint={() => setIsHintModalOpen(true)}
-          onSelectMission={(id) => loadScenario(id)}
-          onRestartMission={handleRestartFreshMission}
-          allScenarios={ALL_SCENARIOS}
-        />
+        <div className="game-notification" role="status">
+          {sessionBanner && <span><Database aria-hidden="true" />{sessionBanner}</span>}
+        </div>
 
         {/* Floating Monospace Terminal Console */}
         {activeTerminalDevice && (
           <TerminalConsole
             sim={sim}
             deviceId={activeTerminalDevice}
+            soundEnabled={soundEnabled}
+            onToggleSound={toggleAudio}
             onClose={() => {
               setActiveTerminalDevice(null);
               scheduleAutosave();

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { ObjectiveState, ScenarioDef } from '../sim/types';
 import { sounds } from '../utils/audio';
 import {
@@ -56,30 +56,29 @@ export const ContextualHintModal: React.FC<ContextualHintModalProps> = ({
     }
   }, [isOpen, objectives]);
 
-  // Handle keyboard navigation within the modal (Left/Right to browse, Esc to close)
-  useEffect(() => {
-    if (!isOpen) return;
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const showGuide = isOpen && objectives.length > 0;
+  useLayoutEffect(() => {
+    if (!showGuide) return;
+    const dialog = dialogRef.current;
+    dialog?.showModal();
+    return () => dialog?.close();
+  }, [showGuide]);
 
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        onClose();
-      } else if (e.key === 'ArrowLeft') {
-        e.preventDefault();
-        setSelectedIdx((prev) => Math.max(0, prev - 1));
-        sounds.playKeyClick();
-      } else if (e.key === 'ArrowRight') {
-        e.preventDefault();
-        setSelectedIdx((prev) => Math.min(objectives.length - 1, prev + 1));
-        sounds.playKeyClick();
-      }
-    };
+  if (!showGuide) return null;
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, objectives.length, onClose]);
-
-  if (!isOpen || objectives.length === 0) return null;
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDialogElement>) => {
+    if (event.nativeEvent.isComposing || event.altKey || event.ctrlKey || event.metaKey) return;
+    if (event.key.toLowerCase() === 'h' && !event.repeat) {
+      event.preventDefault();
+      onClose();
+    } else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+      const delta = event.key === 'ArrowLeft' ? -1 : 1;
+      event.preventDefault();
+      setSelectedIdx((index) => Math.max(0, Math.min(objectives.length - 1, index + delta)));
+      sounds.playKeyClick();
+    }
+  };
 
   const currentObj = objectives[selectedIdx] || objectives[0];
   const guidance = currentObj.guidance;
@@ -107,8 +106,8 @@ export const ContextualHintModal: React.FC<ContextualHintModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
-      <div className="relative w-full max-w-2xl rounded-2xl bg-slate-900 border border-amber-500/50 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+    <dialog ref={dialogRef} aria-labelledby="guide-title" className="game-dialog game-dialog-wide guidance-dialog" onKeyDown={handleKeyDown} onCancel={(event) => { event.preventDefault(); onClose(); }}>
+      <div className="guidance-content flex flex-col overflow-hidden">
         {/* Top Header Bar */}
         <div className="flex items-center justify-between px-6 py-4 bg-slate-950/80 border-b border-slate-800">
           <div className="flex items-center gap-3">
@@ -117,8 +116,8 @@ export const ContextualHintModal: React.FC<ContextualHintModalProps> = ({
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-sm font-bold text-white tracking-wide">Contextual Guidance & Step-by-Step Hint</h2>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-amber-950 text-amber-300 border border-amber-800">
+                <h2 id="guide-title" className="text-sm font-bold text-white tracking-wide">Mission guidance</h2>
+                <span className="hidden px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-amber-950 text-amber-300 border border-amber-800 sm:inline">
                   Shortcut: [H]
                 </span>
               </div>
@@ -130,8 +129,10 @@ export const ContextualHintModal: React.FC<ContextualHintModalProps> = ({
 
           <button
             onClick={onClose}
-            className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition"
+            className="ops-button ops-icon"
+            aria-label="Close guidance"
             title="Close [Esc or H]"
+            autoFocus
           >
             <X className="w-5 h-5" />
           </button>
@@ -212,7 +213,7 @@ export const ContextualHintModal: React.FC<ContextualHintModalProps> = ({
         {/* Modal Scrollable Body */}
         <div className="flex-1 overflow-y-auto p-6 space-y-5 text-xs text-slate-200">
           {/* Objective Title Banner */}
-          <div className="p-4 rounded-xl bg-slate-950/70 border border-slate-800 flex items-start justify-between gap-4">
+          <div className="p-4 rounded-xl bg-slate-950/70 border border-slate-800 flex flex-col sm:flex-row items-start justify-between gap-3">
             <div>
               <div className="text-[11px] font-bold uppercase tracking-wider text-amber-400 mb-1 flex items-center gap-1.5">
                 <span>Objective Goal:</span>
@@ -313,7 +314,7 @@ export const ContextualHintModal: React.FC<ContextualHintModalProps> = ({
 
         {/* Modal Footer */}
         <div className="px-6 py-3 bg-slate-950 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
-          <div className="flex items-center gap-3 text-[11px]">
+          <div className="hidden sm:flex items-center gap-3 text-[11px]">
             <span className="flex items-center gap-1">
               <Keyboard className="w-3.5 h-3.5 text-slate-500" />
               <span>Press <strong className="text-slate-300">H</strong> or <strong className="text-slate-300">Esc</strong> to close</span>
@@ -330,6 +331,6 @@ export const ContextualHintModal: React.FC<ContextualHintModalProps> = ({
           </button>
         </div>
       </div>
-    </div>
+    </dialog>
   );
 };
