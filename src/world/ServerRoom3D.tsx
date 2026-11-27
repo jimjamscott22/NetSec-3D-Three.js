@@ -47,6 +47,7 @@ interface PortMarker {
   deviceId: string;
   shortName: string;
   position: THREE.Vector3;
+  cableExit?: THREE.Vector3;
   isReserved: boolean;
   mesh?: THREE.Mesh;
   ledMesh?: THREE.Mesh;
@@ -455,6 +456,25 @@ export const ALL_RACK_UNITS: RackUnitSpec[] = [
   },
 ];
 
+const WORKSTATION_LAYOUT = {
+  desk_1: { desk: [0.5, 0, 0.65], tower: [-0.94, 0.31, 0.28], accent: '#67e8f9' },
+  desk_2: { desk: [2.16, 0, -0.82], tower: [0.94, 0.31, 0.28], accent: '#fbbf24' },
+} as const;
+
+const roomOverview = () => ({
+  pos: new THREE.Vector3(0.42, 3.45, 6.1),
+  lookAt: new THREE.Vector3(0.48, 1.12, 0),
+});
+
+const workstationView = (preset: keyof typeof WORKSTATION_LAYOUT) => {
+  const { desk, tower } = WORKSTATION_LAYOUT[preset];
+  const center = new THREE.Vector3(...desk).add(new THREE.Vector3(...tower));
+  return {
+    pos: center.clone().add(new THREE.Vector3(Math.sign(-tower[0]) * 0.64, 0.82, 1.85)),
+    lookAt: center.add(new THREE.Vector3(0, 0.1, 0.2)),
+  };
+};
+
 /** Key for a cable. Uses '|' because device ids such as "PC-B" contain '-'. */
 const linkKeyOf = (a: string, b: string) => `${a}|${b}`;
 
@@ -505,6 +525,11 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
   const [activeDockTab, setActiveDockTab] = useState<'cables' | 'chassis' | 'catalog' | 'cameras'>('chassis');
   const [cameraStyle, setCameraStyle] = useState<'orbit' | 'firstPerson' | 'thirdPerson'>('orbit');
   const [cameraPreset, setActiveCameraPreset] = useState('overview');
+  const primaryWorkstationId = sim.devices.has('SOC-PC') ? 'SOC-PC' : sim.devices.has('PC-1') ? 'PC-1' : 'PC-A';
+  const hasSecondWorkstation = sim.devices.has('PC-B');
+  const focusedWorkstationId = cameraPreset === 'desk_1'
+    ? primaryWorkstationId
+    : cameraPreset === 'desk_2' && hasSecondWorkstation ? 'PC-B' : null;
   const [sceneUnavailable, setSceneUnavailable] = useState(false);
   const touchDirections = useRef(new Map<number, string>());
   const stopTouchMovement = (event: React.PointerEvent<HTMLButtonElement>) => {
@@ -550,10 +575,8 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
   const clickableMeshesRef = useRef<Array<{ id: string; mesh: THREE.Mesh; type: 'device' | 'rackUnit' | 'cable' | 'drive' | 'powerBtn' | 'psu'; meta?: any }>>([]);
 
   // Camera animation target
-  const cameraTargetRef = useRef<{ pos: THREE.Vector3; lookAt: THREE.Vector3 }>({
-    pos: new THREE.Vector3(0, 3.2, 5.0),
-    lookAt: new THREE.Vector3(0, 1.2, 0),
-  });
+  const [initialCameraTarget] = useState(roomOverview);
+  const cameraTargetRef = useRef(initialCameraTarget);
 
   const showToast = useCallback((msg: string) => {
     setToastMessage(msg);
@@ -569,10 +592,7 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
     if (liveRef.current) liveRef.current.cameraStyle = style;
 
     if (style === 'orbit') {
-      cameraTargetRef.current = {
-        pos: new THREE.Vector3(0, 3.6, 5.5),
-        lookAt: new THREE.Vector3(0, 1.2, 0),
-      };
+      cameraTargetRef.current = roomOverview();
     }
   };
 
@@ -584,10 +604,7 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
     if (liveRef.current) liveRef.current.cameraStyle = 'orbit';
 
     if (preset === 'overview') {
-      cameraTargetRef.current = {
-        pos: new THREE.Vector3(0, 3.6, 5.5),
-        lookAt: new THREE.Vector3(0, 1.2, 0),
-      };
+      cameraTargetRef.current = roomOverview();
     } else if (preset === 'rack_a') {
       setSelectedRack('Rack A');
       cameraTargetRef.current = {
@@ -610,16 +627,8 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
         pos: new THREE.Vector3(-1.4, 2.75, 0.95),
         lookAt: new THREE.Vector3(-1.8, 2.62, 0.45),
       };
-    } else if (preset === 'desk_1') {
-      cameraTargetRef.current = {
-        pos: new THREE.Vector3(0.8, 1.9, 3.3),
-        lookAt: new THREE.Vector3(1.9, 0.2, 1.2),
-      };
-    } else if (preset === 'desk_2') {
-      cameraTargetRef.current = {
-        pos: new THREE.Vector3(0.8, 1.9, 0.9),
-        lookAt: new THREE.Vector3(1.9, 0.2, -1.2),
-      };
+    } else if (preset === 'desk_1' || preset === 'desk_2') {
+      cameraTargetRef.current = workstationView(preset);
     } else if (preset === 'soc') {
       cameraTargetRef.current = {
         pos: new THREE.Vector3(0, 2.2, 1.8),
@@ -761,13 +770,18 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
 
       const pA = markerA.position.clone();
       const pB = markerB.position.clone();
+      const exitA = markerA.cableExit;
+      const exitB = markerB.cableExit;
 
-      // Catenary sag curve controlled by customCableTension
-      const midPoint = pA.clone().lerp(pB, 0.5);
+      // Leave the face of a tower before bending toward the other port.
+      const midPoint = (exitA ?? pA).clone().lerp(exitB ?? pB, 0.5);
       const dist = pA.distanceTo(pB);
       midPoint.y -= Math.min(0.85, dist * customCableTension);
+      if (exitA || exitB) midPoint.y = Math.max(0.08, midPoint.y);
 
-      const curve = new THREE.CatmullRomCurve3([pA, midPoint, pB]);
+      const curve = new THREE.CatmullRomCurve3([
+        pA, ...(exitA ? [exitA] : []), midPoint, ...(exitB ? [exitB] : []), pB,
+      ]);
       const linkKey = linkKeyOf(link.a, link.b);
       const revKey = linkKeyOf(link.b, link.a);
       const isSelectedCable = selectedCableKey === linkKey || selectedCableKey === revKey;
@@ -1183,6 +1197,10 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
       }
     };
     frameRoom(width, height);
+    if (!hasSecondWorkstation && liveRef.current.cameraPreset === 'desk_2') {
+      cameraTargetRef.current = roomOverview();
+      setActiveCameraPreset('overview');
+    }
     camera.position.copy(cameraTargetRef.current.pos);
     camera.lookAt(cameraTargetRef.current.lookAt);
     cameraRef.current = camera;
@@ -1453,9 +1471,11 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
     rackHighlightGroupsRef.current = rackHighlightsMap;
 
     // --- WORKSTATION DESKS ---
-    const buildDesk = (x: number, z: number, deskName: string) => {
+    const towerBadges: THREE.MeshBasicMaterial[] = [];
+    const buildDesk = (preset: keyof typeof WORKSTATION_LAYOUT, deviceId: string) => {
+      const layout = WORKSTATION_LAYOUT[preset];
       const deskGroup = new THREE.Group();
-      deskGroup.position.set(x, 0, z);
+      deskGroup.position.fromArray(layout.desk);
 
       const top = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.06, 0.9), new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.45 }));
       top.position.set(0, 0.8, 0);
@@ -1486,16 +1506,67 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
       kb.position.set(0, 0.83, 0.15);
       deskGroup.add(kb);
 
-      const tower = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.46, 0.48), new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.4 }));
-      tower.position.set(0.5, 0.45, 0);
+      const tower = new THREE.Mesh(
+        new THREE.BoxGeometry(0.36, 0.62, 0.5),
+        new THREE.MeshStandardMaterial({ color: 0x64748b, emissive: 0x334155, emissiveIntensity: 0.25, roughness: 0.5 }),
+      );
+      tower.position.fromArray(layout.tower);
+      tower.castShadow = true;
       deskGroup.add(tower);
 
+      const front = new THREE.Mesh(
+        new THREE.BoxGeometry(0.32, 0.57, 0.02),
+        new THREE.MeshStandardMaterial({ color: 0x334155, emissive: 0x334155, emissiveIntensity: 0.22, roughness: 0.65 }),
+      );
+      front.position.z = 0.25;
+      tower.add(front);
+
+      const badgeCanvas = document.createElement('canvas');
+      badgeCanvas.width = 256;
+      badgeCanvas.height = 128;
+      const badgeContext = badgeCanvas.getContext('2d');
+      if (badgeContext) {
+        badgeContext.fillStyle = '#101925';
+        badgeContext.fillRect(0, 0, 256, 128);
+        badgeContext.fillStyle = layout.accent;
+        badgeContext.fillRect(0, 0, 256, 8);
+        badgeContext.textAlign = 'center';
+        badgeContext.font = 'bold 52px monospace';
+        badgeContext.fillText(deviceId, 128, 65, 232);
+        badgeContext.fillStyle = '#e2e8f0';
+        badgeContext.font = 'bold 25px monospace';
+        badgeContext.fillText('ETHERNET', 128, 108);
+
+        const texture = new THREE.CanvasTexture(badgeCanvas);
+        texture.colorSpace = THREE.SRGBColorSpace;
+        const material = new THREE.MeshBasicMaterial({ map: texture, toneMapped: false });
+        towerBadges.push(material);
+        const badge = new THREE.Mesh(new THREE.PlaneGeometry(0.29, 0.145), material);
+        badge.position.set(0, 0.177, 0.262);
+        tower.add(badge);
+      }
+
+      const jackTrim = new THREE.Mesh(
+        new THREE.BoxGeometry(0.146, 0.11, 0.016),
+        new THREE.MeshBasicMaterial({ color: layout.accent, toneMapped: false }),
+      );
+      jackTrim.position.set(0, 0.013, 0.265);
+      tower.add(jackTrim);
+
+      const socket = new THREE.Mesh(new THREE.BoxGeometry(0.114, 0.084, 0.024), new THREE.MeshBasicMaterial({ color: 0x101925 }));
+      socket.position.set(0, 0.013, 0.275);
+      tower.add(socket);
+
+      const led = new THREE.Mesh(new THREE.SphereGeometry(0.014, 8, 8), new THREE.MeshStandardMaterial({ color: 0x1e293b }));
+      led.position.set(0.108, 0.013, 0.266);
+      tower.add(led);
+
       scene.add(deskGroup);
-      return { deskGroup, tower, screen };
+      return { deviceId, tower, screen, socket, jackTrim, led };
     };
 
-    const desk1 = buildDesk(1.6, 1.2, 'desk_1');
-    const desk2 = buildDesk(1.6, -1.2, 'desk_2');
+    const workstations = [buildDesk('desk_1', primaryWorkstationId)];
+    if (hasSecondWorkstation) workstations.push(buildDesk('desk_2', 'PC-B'));
 
     // --- PROCEDURAL DETAILED RACK EQUIPMENT CHASSIS BUILDER ---
     const markers: PortMarker[] = [];
@@ -1978,49 +2049,18 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
       ledMesh: webLedMesh,
     });
 
-    // PC Workstations Sockets
-    const pcAId = sim.devices.has('SOC-PC') ? 'SOC-PC' : sim.devices.has('PC-1') ? 'PC-1' : 'PC-A';
-    clickables.push({ id: pcAId, mesh: desk1.screen, type: 'device' });
-    clickables.push({ id: pcAId, mesh: desk1.tower, type: 'device' });
-
-    const pcASockMesh = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.035, 0.03), new THREE.MeshStandardMaterial({ color: 0x0f172a }));
-    pcASockMesh.position.set(1.6 + 0.5, 0.45, 1.2 + 0.25);
-    scene.add(pcASockMesh);
-
-    const pcALedMesh = new THREE.Mesh(new THREE.SphereGeometry(0.01, 8, 8), new THREE.MeshStandardMaterial({ color: 0x1e293b }));
-    pcALedMesh.position.set(1.6 + 0.5, 0.48, 1.2 + 0.255);
-    scene.add(pcALedMesh);
-
-    markers.push({
-      portId: `${pcAId}:Ethernet0`,
-      deviceId: pcAId,
-      shortName: 'Eth0',
-      position: new THREE.Vector3(1.6 + 0.5, 0.45, 1.2 + 0.26),
-      isReserved: false,
-      mesh: pcASockMesh,
-      ledMesh: pcALedMesh,
-    });
-
-    if (sim.devices.has('PC-B')) {
-      clickables.push({ id: 'PC-B', mesh: desk2.screen, type: 'device' });
-      clickables.push({ id: 'PC-B', mesh: desk2.tower, type: 'device' });
-
-      const pcBSockMesh = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.035, 0.03), new THREE.MeshStandardMaterial({ color: 0x0f172a }));
-      pcBSockMesh.position.set(1.6 + 0.5, 0.45, -1.2 + 0.25);
-      scene.add(pcBSockMesh);
-
-      const pcBLedMesh = new THREE.Mesh(new THREE.SphereGeometry(0.01, 8, 8), new THREE.MeshStandardMaterial({ color: 0x1e293b }));
-      pcBLedMesh.position.set(1.6 + 0.5, 0.48, -1.2 + 0.255);
-      scene.add(pcBLedMesh);
-
+    for (const { deviceId, screen, tower, socket, jackTrim, led } of workstations) {
+      clickables.push({ id: deviceId, mesh: screen, type: 'device' }, { id: deviceId, mesh: tower, type: 'device' });
+      const portId = `${deviceId}:Ethernet0`;
       markers.push({
-        portId: 'PC-B:Ethernet0',
-        deviceId: 'PC-B',
+        portId,
+        deviceId,
         shortName: 'Eth0',
-        position: new THREE.Vector3(1.6 + 0.5, 0.45, -1.2 + 0.26),
-        isReserved: false,
-        mesh: pcBSockMesh,
-        ledMesh: pcBLedMesh,
+        position: socket.localToWorld(new THREE.Vector3(0, 0, 0.012)),
+        cableExit: socket.localToWorld(new THREE.Vector3(0, 0, 0.19)),
+        isReserved: sim.reservedPorts.has(portId),
+        mesh: jackTrim,
+        ledMesh: led,
       });
     }
 
@@ -2032,16 +2072,10 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
         id,
         { id, object: data.group, offset: new THREE.Vector3(0, 0, 0.42) } as EquipmentLabelTarget,
       ] as const),
-      [
-        pcAId,
-        { id: pcAId, object: desk1.screen, offset: new THREE.Vector3(0, 0.3, 0) } as EquipmentLabelTarget,
-      ] as const,
-      ...(sim.devices.has('PC-B')
-        ? [[
-            'PC-B',
-            { id: 'PC-B', object: desk2.screen, offset: new THREE.Vector3(0, 0.3, 0) } as EquipmentLabelTarget,
-          ] as const]
-        : []),
+      ...workstations.map(({ deviceId, screen }) => [
+        deviceId,
+        { id: deviceId, object: screen, offset: new THREE.Vector3(0, 0.3, 0) },
+      ] as const),
     ]);
 
     liveRef.current.updateCablesAndLeds();
@@ -2665,10 +2699,14 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
       if (container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);
       }
+      for (const material of towerBadges) {
+        material.map?.dispose();
+        material.dispose();
+      }
       terminalBackdrop.dispose();
       renderer.dispose();
     };
-  }, [sim, scenarioId]);
+  }, [sim, scenarioId, primaryWorkstationId, hasSecondWorkstation]);
 
   // Handle clicking a port for cabling interaction
   const handlePortClick = (marker: PortMarker) => {
@@ -2746,8 +2784,9 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
   };
 
   liveRef.current = {
-  cameraStyle,
-  slidOutUnitIds,
+    cameraStyle,
+    cameraPreset,
+    slidOutUnitIds,
   ejectedDrives,
     ejectedPsus,
     lidOpenUnits,
@@ -2810,14 +2849,11 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
     };
   }, [sim, simRevision, sim.links, selectedRack]);
 
-  const equipmentLabels = useMemo(() => {
-    const workstationId = sim.devices.has('SOC-PC') ? 'SOC-PC' : sim.devices.has('PC-1') ? 'PC-1' : 'PC-A';
-    return [
-      ...ALL_RACK_UNITS.map((unit) => ({ id: unit.id, name: unit.name })),
-      { id: workstationId, name: `Workstation ${workstationId}` },
-      ...(sim.devices.has('PC-B') ? [{ id: 'PC-B', name: 'Sales Workstation PC-B' }] : []),
-    ];
-  }, [sim, scenarioId]);
+  const equipmentLabels = useMemo(() => [
+    ...ALL_RACK_UNITS.map((unit) => ({ id: unit.id, name: unit.name })),
+    { id: primaryWorkstationId, name: `Workstation ${primaryWorkstationId}` },
+    ...(hasSecondWorkstation ? [{ id: 'PC-B', name: 'Sales Workstation PC-B' }] : []),
+  ], [primaryWorkstationId, hasSecondWorkstation]);
 
   const toggleEquipmentLabels = () => {
     sounds.playKeyClick();
@@ -2906,13 +2942,27 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
             <option value="rack_b">Rack B</option>
             <option value="rear">Rear servicing</option>
             <option value="kvm">KVM drawer</option>
-            <option value="desk_1">Desk 1</option>
-            {sim.devices.has('PC-B') && <option value="desk_2">Desk 2</option>}
+            <option value="desk_1">{primaryWorkstationId} · Desk 1</option>
+            {hasSecondWorkstation && <option value="desk_2">PC-B · Desk 2</option>}
             <option value="soc">Wall monitor</option>
             <option value="firstPerson">First person</option>
             <option value="thirdPerson">Third person</option>
           </select>
         </label>
+        {focusedWorkstationId && (
+          <button
+            type="button"
+            className="ops-button ops-icon room-port-shortcut"
+            aria-label={`${focusedWorkstationId} Ethernet port`}
+            title={`${focusedWorkstationId} Ethernet port — attach or disconnect cable`}
+            onClick={() => {
+              const port = portMarkersRef.current.find((marker) => marker.portId === `${focusedWorkstationId}:Ethernet0`);
+              if (port) handlePortClick(port);
+            }}
+          >
+            <Cable aria-hidden="true" />
+          </button>
+        )}
         <button type="button" className="ops-button ops-icon" onClick={toggleEquipmentLabels} aria-pressed={areEquipmentLabelsVisible} aria-label="Equipment labels" title="Equipment labels">
           <Info aria-hidden="true" />
         </button>
@@ -3815,14 +3865,14 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
                       onClick={() => setCameraPreset('desk_1')}
                       className="rounded-lg bg-slate-800 px-3 py-1.5 text-slate-300 transition hover:bg-emerald-600/30 hover:text-emerald-300"
                     >
-                      Desk 1
+                      {primaryWorkstationId} · Desk 1
                     </button>
-                    {sim.devices.has('PC-B') && (
+                    {hasSecondWorkstation && (
                       <button
                         onClick={() => setCameraPreset('desk_2')}
                         className="rounded-lg bg-slate-800 px-3 py-1.5 text-slate-300 transition hover:bg-amber-600/30 hover:text-amber-300"
                       >
-                        Desk 2
+                        PC-B · Desk 2
                       </button>
                     )}
                     <button
