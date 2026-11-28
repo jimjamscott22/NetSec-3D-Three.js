@@ -6,6 +6,7 @@ import {
   createRackPlate, frontRackView, rackUnitAccent, rackUnitView, rearRackView,
   roomOrbitFov, roomOverview, PORTRAIT_ROOM_SHIFT, RACK_LAYOUT, type RackName,
 } from './rackPresentation';
+import { createRoomProps } from './roomProps';
 import {
   Camera,
   Layers,
@@ -1326,11 +1327,8 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
       scene.add(panel2);
     }
 
-    // Overhead Cable Trays (Yellow/Steel Ladder Racks along ceiling)
-    const trayMat = new THREE.MeshStandardMaterial({ color: 0xeab308, metalness: 0.7, roughness: 0.4 });
-    const cableTrayA = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.04, 5.0), trayMat);
-    cableTrayA.position.set(-1.8, 3.1, -0.6);
-    scene.add(cableTrayA);
+    const roomProps = createRoomProps();
+    scene.add(roomProps.group);
 
     // Wall SOC Threat Screen Frame
     const socFrame = new THREE.Mesh(new THREE.BoxGeometry(3.8, 2.0, 0.1), new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.8 }));
@@ -2733,6 +2731,7 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
         geometry.dispose();
         material.dispose();
       }
+      roomProps.dispose();
       terminalBackdrop.dispose();
       renderer.dispose();
     };
