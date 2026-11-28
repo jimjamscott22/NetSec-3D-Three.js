@@ -10,7 +10,7 @@ export const OBJECTIVE_GUIDANCE_MAP: Record<string, StepGuidance> = {
       'Click the "Rack A" camera angle to look at Switch S1 (slot 3).',
       'Click on free port socket S1:Fa0/2 (the second FastEthernet port from the left).',
       'You are now holding an Ethernet cable from S1:Fa0/2 (see status banner).',
-      'Click the "Desk 2" camera angle, then click the PC-B tower or its Eth0 socket.',
+      'Choose "PC-B · Desk 2" in the Room camera menu, then click the outlined Ethernet jack or the Ethernet port button next to the menu.',
       'The cable appears in 3D and both port LEDs turn green. PC-B is still in VLAN 1 until you configure Fa0/2.',
     ],
     suggestedCommands: ['Click S1:Fa0/2 ➜ Click PC-B:Eth0'],

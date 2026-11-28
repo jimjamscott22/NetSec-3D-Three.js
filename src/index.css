@@ -245,6 +245,8 @@
 .room-camera-select svg { width: 16px; height: 16px; flex: none; }
 .room-camera-select select { width: 132px; min-height: 44px; padding-right: 4px; border: 0; border-radius: 4px; color: var(--ops-text); font-size: 12px; font-weight: 650; color-scheme: dark; cursor: pointer; }
 .room-camera-select option { background: var(--ops-surface); }
+.room-camera .room-port-shortcut { color: var(--ops-accent); border-color: var(--ops-line); }
+.room-camera:has(.room-port-shortcut) .room-camera-select select { width: clamp(96px, calc(100vw - 215px), 132px); }
 .room-cables { top: calc(var(--ops-gutter) + 60px); max-width: calc(100% - 355px - var(--ops-right)); }
 .room-cables button { min-height: 28px; }
 .room-diagnostics { top: calc(var(--ops-gutter) + 118px); max-width: calc(100% - 355px - var(--ops-right)); }
