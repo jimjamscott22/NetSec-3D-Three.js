@@ -3,6 +3,10 @@ import * as THREE from 'three';
 import { NetworkSim } from '../sim/core/network_sim';
 import { sounds } from '../utils/audio';
 import {
+  createRackPlate, frontRackView, rackUnitAccent, rackUnitView, rearRackView,
+  roomOrbitFov, roomOverview, PORTRAIT_ROOM_SHIFT, RACK_LAYOUT, type RackName,
+} from './rackPresentation';
+import {
   Camera,
   Layers,
   Palette,
@@ -55,6 +59,7 @@ interface PortMarker {
 
 interface EquipmentLabelTarget {
   id: string;
+  rack?: RackName;
   object: THREE.Object3D;
   offset: THREE.Vector3;
 }
@@ -83,11 +88,10 @@ export const CABLE_COLORS: CableColorOption[] = [
 export interface RackUnitSpec {
   id: string;
   name: string;
-  rack: 'Rack A' | 'Rack B';
+  rack: RackName;
   slot: number;
   uHeight: number;
   y: number;
-  zBase: number;
   color: number;
   canSlide: boolean;
   canTerminal: boolean;
@@ -107,7 +111,6 @@ export const ALL_RACK_UNITS: RackUnitSpec[] = [
     slot: 1,
     uHeight: 1,
     y: 2.62,
-    zBase: 0,
     color: 0x0f172a,
     canSlide: true,
     canTerminal: false,
@@ -122,7 +125,6 @@ export const ALL_RACK_UNITS: RackUnitSpec[] = [
     slot: 2,
     uHeight: 1,
     y: 2.44,
-    zBase: 0,
     color: 0x0f172a,
     canSlide: false,
     canTerminal: false,
@@ -136,7 +138,6 @@ export const ALL_RACK_UNITS: RackUnitSpec[] = [
     slot: 3,
     uHeight: 1,
     y: 2.22,
-    zBase: 0,
     color: 0x0284c7,
     canSlide: true,
     canTerminal: true,
@@ -151,7 +152,6 @@ export const ALL_RACK_UNITS: RackUnitSpec[] = [
     slot: 4,
     uHeight: 1,
     y: 2.02,
-    zBase: 0,
     color: 0x1e293b,
     canSlide: false,
     canTerminal: false,
@@ -165,7 +165,6 @@ export const ALL_RACK_UNITS: RackUnitSpec[] = [
     slot: 5,
     uHeight: 1,
     y: 1.86,
-    zBase: 0,
     color: 0x082f49,
     canSlide: false,
     canTerminal: false,
@@ -179,7 +178,6 @@ export const ALL_RACK_UNITS: RackUnitSpec[] = [
     slot: 6,
     uHeight: 1,
     y: 1.68,
-    zBase: 0,
     color: 0x334155,
     canSlide: true,
     canTerminal: true,
@@ -194,7 +192,6 @@ export const ALL_RACK_UNITS: RackUnitSpec[] = [
     slot: 7,
     uHeight: 1,
     y: 1.48,
-    zBase: 0,
     color: 0x1e293b,
     canSlide: true,
     canTerminal: true,
@@ -210,7 +207,6 @@ export const ALL_RACK_UNITS: RackUnitSpec[] = [
     slot: 8,
     uHeight: 1,
     y: 1.32,
-    zBase: 0,
     color: 0x701a75,
     canSlide: true,
     canTerminal: false,
@@ -224,7 +220,6 @@ export const ALL_RACK_UNITS: RackUnitSpec[] = [
     slot: 9,
     uHeight: 2,
     y: 1.10,
-    zBase: 0,
     color: 0x111827,
     canSlide: true,
     canTerminal: false,
@@ -240,7 +235,6 @@ export const ALL_RACK_UNITS: RackUnitSpec[] = [
     slot: 10,
     uHeight: 1,
     y: 0.96,
-    zBase: 0,
     color: 0x1e1b4b,
     canSlide: false,
     canTerminal: false,
@@ -254,7 +248,6 @@ export const ALL_RACK_UNITS: RackUnitSpec[] = [
     slot: 11,
     uHeight: 1,
     y: 0.82,
-    zBase: 0,
     color: 0x991b1b,
     canSlide: true,
     canTerminal: false,
@@ -269,7 +262,6 @@ export const ALL_RACK_UNITS: RackUnitSpec[] = [
     slot: 12,
     uHeight: 1,
     y: 0.66,
-    zBase: 0,
     color: 0x064e3b,
     canSlide: false,
     canTerminal: false,
@@ -283,7 +275,6 @@ export const ALL_RACK_UNITS: RackUnitSpec[] = [
     slot: 13,
     uHeight: 2,
     y: 0.40,
-    zBase: 0,
     color: 0x0f172a,
     canSlide: false,
     canTerminal: false,
@@ -299,7 +290,6 @@ export const ALL_RACK_UNITS: RackUnitSpec[] = [
     slot: 1,
     uHeight: 1,
     y: 2.62,
-    zBase: -1.4,
     color: 0x0f172a,
     canSlide: false,
     canTerminal: false,
@@ -313,7 +303,6 @@ export const ALL_RACK_UNITS: RackUnitSpec[] = [
     slot: 2,
     uHeight: 1,
     y: 2.38,
-    zBase: -1.4,
     color: 0x0284c7,
     canSlide: true,
     canTerminal: false,
@@ -328,7 +317,6 @@ export const ALL_RACK_UNITS: RackUnitSpec[] = [
     slot: 3,
     uHeight: 1,
     y: 2.16,
-    zBase: -1.4,
     color: 0x1e293b,
     canSlide: false,
     canTerminal: false,
@@ -342,7 +330,6 @@ export const ALL_RACK_UNITS: RackUnitSpec[] = [
     slot: 4,
     uHeight: 1,
     y: 1.94,
-    zBase: -1.4,
     color: 0x334155,
     canSlide: true,
     canTerminal: false,
@@ -357,7 +344,6 @@ export const ALL_RACK_UNITS: RackUnitSpec[] = [
     slot: 5,
     uHeight: 1,
     y: 1.76,
-    zBase: -1.4,
     color: 0x082f49,
     canSlide: false,
     canTerminal: false,
@@ -371,7 +357,6 @@ export const ALL_RACK_UNITS: RackUnitSpec[] = [
     slot: 6,
     uHeight: 2,
     y: 1.52,
-    zBase: -1.4,
     color: 0x1e293b,
     canSlide: true,
     canTerminal: false,
@@ -387,7 +372,6 @@ export const ALL_RACK_UNITS: RackUnitSpec[] = [
     slot: 7,
     uHeight: 1,
     y: 1.36,
-    zBase: -1.4,
     color: 0x1e293b,
     canSlide: false,
     canTerminal: false,
@@ -401,7 +385,6 @@ export const ALL_RACK_UNITS: RackUnitSpec[] = [
     slot: 8,
     uHeight: 2,
     y: 1.20,
-    zBase: -1.4,
     color: 0x111827,
     canSlide: true,
     canTerminal: false,
@@ -417,7 +400,6 @@ export const ALL_RACK_UNITS: RackUnitSpec[] = [
     slot: 10,
     uHeight: 1,
     y: 0.94,
-    zBase: -1.4,
     color: 0x7e22ce,
     canSlide: true,
     canTerminal: false,
@@ -431,7 +413,6 @@ export const ALL_RACK_UNITS: RackUnitSpec[] = [
     slot: 11,
     uHeight: 2,
     y: 0.68,
-    zBase: -1.4,
     color: 0x111827,
     canSlide: true,
     canTerminal: false,
@@ -447,7 +428,6 @@ export const ALL_RACK_UNITS: RackUnitSpec[] = [
     slot: 13,
     uHeight: 2,
     y: 0.36,
-    zBase: -1.4,
     color: 0x0f172a,
     canSlide: false,
     canTerminal: false,
@@ -460,11 +440,6 @@ const WORKSTATION_LAYOUT = {
   desk_1: { desk: [0.5, 0, 0.65], tower: [-0.94, 0.31, 0.28], accent: '#67e8f9' },
   desk_2: { desk: [2.16, 0, -0.82], tower: [0.94, 0.31, 0.28], accent: '#fbbf24' },
 } as const;
-
-const roomOverview = () => ({
-  pos: new THREE.Vector3(0.42, 3.45, 6.1),
-  lookAt: new THREE.Vector3(0.48, 1.12, 0),
-});
 
 const workstationView = (preset: keyof typeof WORKSTATION_LAYOUT) => {
   const { desk, tower } = WORKSTATION_LAYOUT[preset];
@@ -525,6 +500,8 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
   const [activeDockTab, setActiveDockTab] = useState<'cables' | 'chassis' | 'catalog' | 'cameras'>('chassis');
   const [cameraStyle, setCameraStyle] = useState<'orbit' | 'firstPerson' | 'thirdPerson'>('orbit');
   const [cameraPreset, setActiveCameraPreset] = useState('overview');
+  const [focusedEquipmentId, setFocusedEquipmentId] = useState('');
+  const inspectedRack = cameraPreset === 'rack_a' ? 'Rack A' : cameraPreset === 'rack_b' ? 'Rack B' : null;
   const primaryWorkstationId = sim.devices.has('SOC-PC') ? 'SOC-PC' : sim.devices.has('PC-1') ? 'PC-1' : 'PC-A';
   const hasSecondWorkstation = sim.devices.has('PC-B');
   const focusedWorkstationId = cameraPreset === 'desk_1'
@@ -588,6 +565,7 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
   const setViewingStyle = (style: 'orbit' | 'firstPerson' | 'thirdPerson') => {
     sounds.playKeyClick();
     setCameraStyle(style);
+    setFocusedEquipmentId('');
     setActiveCameraPreset(style === 'orbit' ? 'overview' : style);
     if (liveRef.current) liveRef.current.cameraStyle = style;
 
@@ -601,27 +579,17 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
     sounds.playKeyClick();
     setCameraStyle('orbit');
     setActiveCameraPreset(preset);
+    setFocusedEquipmentId('');
     if (liveRef.current) liveRef.current.cameraStyle = 'orbit';
 
     if (preset === 'overview') {
       cameraTargetRef.current = roomOverview();
-    } else if (preset === 'rack_a') {
-      setSelectedRack('Rack A');
-      cameraTargetRef.current = {
-        pos: new THREE.Vector3(-1.1, 1.8, 1.5),
-        lookAt: new THREE.Vector3(-1.8, 1.5, 0),
-      };
-    } else if (preset === 'rack_b') {
-      setSelectedRack('Rack B');
-      cameraTargetRef.current = {
-        pos: new THREE.Vector3(-1.1, 1.8, -0.1),
-        lookAt: new THREE.Vector3(-1.8, 1.5, -1.4),
-      };
+    } else if (preset === 'rack_a' || preset === 'rack_b') {
+      const rack = preset === 'rack_a' ? 'Rack A' : 'Rack B';
+      setSelectedRack(rack);
+      cameraTargetRef.current = frontRackView(rack);
     } else if (preset === 'rear') {
-      cameraTargetRef.current = {
-        pos: new THREE.Vector3(-1.8, 1.9, -2.5),
-        lookAt: new THREE.Vector3(-1.8, 1.5, -0.7),
-      };
+      cameraTargetRef.current = rearRackView(selectedRack);
     } else if (preset === 'kvm') {
       cameraTargetRef.current = {
         pos: new THREE.Vector3(-1.4, 2.75, 0.95),
@@ -635,6 +603,14 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
         lookAt: new THREE.Vector3(0, 2.2, -2.9),
       };
     }
+  };
+
+  const focusRackEquipment = (rack: RackName, unitId: string) => {
+    const unit = ALL_RACK_UNITS.find((item) => item.rack === rack && item.id === unitId);
+    sounds.playKeyClick();
+    setFocusedEquipmentId(unit?.id ?? '');
+    if (unit) setSelectedUnitId(unit.id);
+    cameraTargetRef.current = unit ? rackUnitView(rack, unit.y) : frontRackView(rack);
   };
 
   // Toggle sliding out an equipment chassis
@@ -1188,19 +1164,24 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
     const frameRoom = (w: number, h: number) => {
       camera.aspect = w / h;
       if (camera.aspect < 1) {
-        // Preserve more horizontal room context and shift it below the portrait HUD.
-        camera.fov = Math.min(104, THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(31)) / camera.aspect)));
-        camera.setViewOffset(w, h, 0, -h * 0.09, w, h);
+        camera.setViewOffset(w, h, 0, -h * PORTRAIT_ROOM_SHIFT, w, h);
       } else {
-        camera.fov = 46;
         camera.clearViewOffset();
       }
+    };
+    const targetFov = () => {
+      const { cameraStyle, cameraPreset, focusedEquipmentId } = liveRef.current;
+      if (cameraStyle === 'firstPerson') return 68;
+      if (cameraStyle === 'thirdPerson') return 52;
+      return roomOrbitFov(camera.aspect, cameraPreset, focusedEquipmentId);
     };
     frameRoom(width, height);
     if (!hasSecondWorkstation && liveRef.current.cameraPreset === 'desk_2') {
       cameraTargetRef.current = roomOverview();
       setActiveCameraPreset('overview');
     }
+    camera.fov = targetFov();
+    camera.updateProjectionMatrix();
     camera.position.copy(cameraTargetRef.current.pos);
     camera.lookAt(cameraTargetRef.current.lookAt);
     cameraRef.current = camera;
@@ -1287,7 +1268,7 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
     scene.add(ceilingKeyLight);
 
     const ceilingKeyLightB = new THREE.PointLight(0xbae6fd, 2.6, 16);
-    ceilingKeyLightB.position.set(-1.8, 3.5, -1.4);
+    ceilingKeyLightB.position.set(RACK_LAYOUT['Rack B'].x, 3.5, RACK_LAYOUT['Rack B'].z + 0.2);
     ceilingKeyLightB.castShadow = true;
     scene.add(ceilingKeyLightB);
 
@@ -1371,12 +1352,15 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
     const rackMeshesMap = new Map<'Rack A' | 'Rack B', THREE.Mesh[]>();
     const rackHighlightsMap = new Map<'Rack A' | 'Rack B', { group: THREE.Group; mats: THREE.MeshBasicMaterial[] }>();
 
-    const buildRackFrame = (x: number, z: number, rackLabel: 'Rack A' | 'Rack B') => {
+    const rackPlates: NonNullable<ReturnType<typeof createRackPlate>>[] = [];
+    const frameTrims: { geometry: THREE.BoxGeometry; material: THREE.MeshBasicMaterial }[] = [];
+    const buildRackFrame = (rackLabel: RackName) => {
+      const { x, z, accent } = RACK_LAYOUT[rackLabel];
       const rackGroup = new THREE.Group();
       rackGroup.position.set(x, 0, z);
       const frameMeshes: THREE.Mesh[] = [];
 
-      const pillarMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.8, roughness: 0.25 });
+      const pillarMat = new THREE.MeshStandardMaterial({ color: 0x64748b, emissive: accent, emissiveIntensity: 0.11, metalness: 0.4, roughness: 0.55 });
       const pGeo = new THREE.BoxGeometry(0.08, 2.95, 0.08);
 
       for (const [px, pz] of [[-0.48, -0.48], [0.48, -0.48], [-0.48, 0.48], [0.48, 0.48]]) {
@@ -1406,6 +1390,24 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
       topPlate.position.set(0, 2.92, 0);
       rackGroup.add(topPlate);
       frameMeshes.push(topPlate);
+
+      const trim = new THREE.MeshBasicMaterial({ color: accent, toneMapped: false });
+      const trimGeometry = new THREE.BoxGeometry(1.08, 0.022, 0.012);
+      frameTrims.push({ geometry: trimGeometry, material: trim });
+      const rackPlate = createRackPlate(rackLabel.toUpperCase(), accent, 0.78, 0.16);
+      for (const side of [1, -1]) {
+        const trimBar = new THREE.Mesh(trimGeometry, trim);
+        trimBar.position.set(0, 2.96, side * 0.548);
+        rackGroup.add(trimBar);
+        if (rackPlate) {
+          const sign = side === 1 ? rackPlate : rackPlate.clone();
+          sign.position.set(0, 2.85, side * 0.558);
+          if (side === -1) sign.rotation.y = Math.PI;
+          frameMeshes.push(sign);
+          rackGroup.add(sign);
+        }
+      }
+      if (rackPlate) rackPlates.push(rackPlate);
 
       const botPlate = new THREE.Mesh(new THREE.BoxGeometry(1.08, 0.08, 1.08), plateMat);
       botPlate.position.set(0, 0.04, 0);
@@ -1465,8 +1467,8 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
       return rackGroup;
     };
 
-    buildRackFrame(-1.8, 0, 'Rack A');
-    buildRackFrame(-1.8, -1.4, 'Rack B');
+    buildRackFrame('Rack A');
+    buildRackFrame('Rack B');
     rackFrameMeshesRef.current = rackMeshesMap;
     rackHighlightGroupsRef.current = rackHighlightsMap;
 
@@ -1591,8 +1593,8 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
     // Helper to build high-detail composite server chassis
     const createChassis = (spec: RackUnitSpec) => {
       const chassisGroup = new THREE.Group();
-      const xPos = -1.8;
-      const zBase = spec.zBase;
+      const { x: xPos, z: zBase } = RACK_LAYOUT[spec.rack];
+      const accent = rackUnitAccent(spec.model);
       chassisGroup.position.set(xPos, spec.y, zBase);
 
       const heightMeters = spec.uHeight * 0.0444 + (spec.uHeight - 1) * 0.02; // 1U ≈ 0.045m, 2U ≈ 0.11m
@@ -1623,10 +1625,22 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
       chassisGroup.add(rightRail);
 
       // 3. Front Faceplate Details
-      const faceplateMat = new THREE.MeshStandardMaterial({ color: 0x0a0f1d, metalness: 0.8, roughness: 0.3 });
+      const faceplateColor = new THREE.Color(0x334155).lerp(new THREE.Color(accent), 0.14);
+      const faceplateMat = new THREE.MeshStandardMaterial({
+        color: faceplateColor, emissive: faceplateColor, emissiveIntensity: 0.3, metalness: 0.35, roughness: 0.6,
+      });
       const faceplate = new THREE.Mesh(new THREE.BoxGeometry(widthMeters + 0.02, heightMeters, 0.02), faceplateMat);
       faceplate.position.set(0, 0, depthMeters / 2 + 0.01);
       chassisGroup.add(faceplate);
+
+      // Place the slot tag in the gap above the faceplate so it never covers controls or ports.
+      const slotTag = createRackPlate(`${String(spec.slot).padStart(2, '0')}  ${spec.id}`, accent, 0.43, 0.062);
+      if (slotTag) {
+        slotTag.position.set(-0.22, heightMeters / 2 + 0.035, depthMeters / 2 + 0.035);
+        rackPlates.push(slotTag);
+        chassisGroup.add(slotTag);
+        clickables.push({ id: spec.id, mesh: slotTag, type: spec.canTerminal ? 'device' : 'rackUnit' });
+      }
 
       // Rack Ears (Mounting brackets with screw holes)
       const earMat = new THREE.MeshStandardMaterial({ color: 0x475569, metalness: 0.9, roughness: 0.2 });
@@ -2067,10 +2081,10 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
     portMarkersRef.current = markers;
     unitGroupsRef.current = unitMap;
     clickableMeshesRef.current = clickables;
-    equipmentLabelTargetsRef.current = new Map([
-      ...Array.from(unitMap.entries()).map(([id, data]) => [
+    equipmentLabelTargetsRef.current = new Map<string, EquipmentLabelTarget>([
+      ...ALL_RACK_UNITS.map(({ id, rack }) => [
         id,
-        { id, object: data.group, offset: new THREE.Vector3(0, 0, 0.42) } as EquipmentLabelTarget,
+        { id, rack, object: unitMap.get(id)!.group, offset: new THREE.Vector3(0.49, 0, 0.43) },
       ] as const),
       ...workstations.map(({ deviceId, screen }) => [
         deviceId,
@@ -2413,7 +2427,7 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
 
       if (cameraRef.current) {
         const cam = cameraRef.current;
-        const desiredFov = activeCameraStyle === 'firstPerson' ? 68 : activeCameraStyle === 'thirdPerson' ? 52 : 46;
+        const desiredFov = targetFov();
         if (Math.abs(cam.fov - desiredFov) > 0.01) {
           cam.fov = THREE.MathUtils.damp(cam.fov, desiredFov, 9, delta);
           cam.updateProjectionMatrix();
@@ -2601,10 +2615,17 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
         const occupiedRects: Array<{ left: number; top: number; right: number; bottom: number }> = [];
         const cameraDirection = new THREE.Vector3();
         camera.getWorldDirection(cameraDirection);
+        const { cameraPreset, focusedEquipmentId } = liveRef.current;
+        const currentRack = cameraPreset === 'rack_a' ? 'Rack A' : cameraPreset === 'rack_b' ? 'Rack B' : null;
 
         for (const target of equipmentLabelTargetsRef.current.values()) {
           const element = labelElements.get(target.id);
           if (!element) continue;
+          if ((currentRack && target.rack !== currentRack) || (focusedEquipmentId && target.id !== focusedEquipmentId) ||
+              (target.rack && camera.position.z <= target.object.position.z + target.offset.z)) {
+            element.style.opacity = '0';
+            continue;
+          }
 
           const worldPosition = target.object.localToWorld(target.offset.clone());
           const towardTarget = worldPosition.clone().sub(camera.position);
@@ -2703,6 +2724,15 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
         material.map?.dispose();
         material.dispose();
       }
+      for (const plate of rackPlates) {
+        plate.geometry.dispose();
+        plate.material.map?.dispose();
+        plate.material.dispose();
+      }
+      for (const { geometry, material } of frameTrims) {
+        geometry.dispose();
+        material.dispose();
+      }
       terminalBackdrop.dispose();
       renderer.dispose();
     };
@@ -2786,8 +2816,9 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
   liveRef.current = {
     cameraStyle,
     cameraPreset,
+    focusedEquipmentId,
     slidOutUnitIds,
-  ejectedDrives,
+    ejectedDrives,
     ejectedPsus,
     lidOpenUnits,
     powerOffUnits,
@@ -2929,49 +2960,63 @@ export const ServerRoom3D: React.FC<ServerRoom3DProps> = ({
 
       {/* Room camera and display controls */}
       <div className="ops-panel room-camera" aria-label="Room camera tools" role="group">
-        <label className="room-camera-select">
-          <Camera aria-hidden="true" />
-          <span className="sr-only">Room camera</span>
-          <select value={cameraPreset === 'desk_2' && !sim.devices.has('PC-B') ? 'overview' : cameraPreset} onChange={(event) => {
-            const view = event.currentTarget.value;
-            if (view === 'firstPerson' || view === 'thirdPerson') setViewingStyle(view);
-            else setCameraPreset(view as Parameters<typeof setCameraPreset>[0]);
-          }}>
-            <option value="overview">Room overview</option>
-            <option value="rack_a">Rack A</option>
-            <option value="rack_b">Rack B</option>
-            <option value="rear">Rear servicing</option>
-            <option value="kvm">KVM drawer</option>
-            <option value="desk_1">{primaryWorkstationId} · Desk 1</option>
-            {hasSecondWorkstation && <option value="desk_2">PC-B · Desk 2</option>}
-            <option value="soc">Wall monitor</option>
-            <option value="firstPerson">First person</option>
-            <option value="thirdPerson">Third person</option>
-          </select>
-        </label>
-        {focusedWorkstationId && (
-          <button
-            type="button"
-            className="ops-button ops-icon room-port-shortcut"
-            aria-label={`${focusedWorkstationId} Ethernet port`}
-            title={`${focusedWorkstationId} Ethernet port — attach or disconnect cable`}
-            onClick={() => {
-              const port = portMarkersRef.current.find((marker) => marker.portId === `${focusedWorkstationId}:Ethernet0`);
-              if (port) handlePortClick(port);
-            }}
-          >
-            <Cable aria-hidden="true" />
+        <div className="room-camera-tools">
+          <label className="room-camera-select">
+            <Camera aria-hidden="true" />
+            <span className="sr-only">Room camera</span>
+            <select value={cameraPreset === 'desk_2' && !hasSecondWorkstation ? 'overview' : cameraPreset} onChange={(event) => {
+              const view = event.currentTarget.value;
+              if (view === 'firstPerson' || view === 'thirdPerson') setViewingStyle(view);
+              else setCameraPreset(view as Parameters<typeof setCameraPreset>[0]);
+            }}>
+              <option value="overview">Room overview</option>
+              <option value="rack_a">Rack A</option>
+              <option value="rack_b">Rack B</option>
+              <option value="rear">Rear servicing</option>
+              <option value="kvm">KVM drawer</option>
+              <option value="desk_1">{primaryWorkstationId} · Desk 1</option>
+              {hasSecondWorkstation && <option value="desk_2">PC-B · Desk 2</option>}
+              <option value="soc">Wall monitor</option>
+              <option value="firstPerson">First person</option>
+              <option value="thirdPerson">Third person</option>
+            </select>
+          </label>
+          {focusedWorkstationId && (
+            <button
+              type="button"
+              className="ops-button ops-icon room-port-shortcut"
+              aria-label={`${focusedWorkstationId} Ethernet port`}
+              title={`${focusedWorkstationId} Ethernet port — attach or disconnect cable`}
+              onClick={() => {
+                const port = portMarkersRef.current.find((marker) => marker.portId === `${focusedWorkstationId}:Ethernet0`);
+                if (port) handlePortClick(port);
+              }}
+            >
+              <Cable aria-hidden="true" />
+            </button>
+          )}
+          <button type="button" className="ops-button ops-icon" onClick={toggleEquipmentLabels} aria-pressed={areEquipmentLabelsVisible} aria-label="Equipment labels" title="Equipment labels">
+            <Info aria-hidden="true" />
           </button>
+          <button type="button" className="ops-button ops-icon" onClick={() => {
+            sounds.playKeyClick();
+            setIsDiagnosticMode(!isDiagnosticMode);
+          }} aria-pressed={isDiagnosticMode} aria-label="Diagnostic cable view" title="Diagnostic cable view">
+            <Activity aria-hidden="true" />
+          </button>
+        </div>
+        {inspectedRack && (
+          <label className="room-camera-select room-equipment-select">
+            <Server aria-hidden="true" />
+            <span className="sr-only">{inspectedRack} equipment</span>
+            <select value={focusedEquipmentId} onChange={(event) => focusRackEquipment(inspectedRack, event.currentTarget.value)}>
+              <option value="">{focusedEquipmentId ? 'Back to full rack' : 'Inspect equipment…'}</option>
+              {ALL_RACK_UNITS.filter((unit) => unit.rack === inspectedRack).map((unit) => (
+                <option key={unit.id} value={unit.id}>{`Slot ${unit.slot} · ${unit.id} — ${unit.name}`}</option>
+              ))}
+            </select>
+          </label>
         )}
-        <button type="button" className="ops-button ops-icon" onClick={toggleEquipmentLabels} aria-pressed={areEquipmentLabelsVisible} aria-label="Equipment labels" title="Equipment labels">
-          <Info aria-hidden="true" />
-        </button>
-        <button type="button" className="ops-button ops-icon" onClick={() => {
-          sounds.playKeyClick();
-          setIsDiagnosticMode(!isDiagnosticMode);
-        }} aria-pressed={isDiagnosticMode} aria-label="Diagnostic cable view" title="Diagnostic cable view">
-          <Activity aria-hidden="true" />
-        </button>
       </div>
 
       {/* Diagnostic Mode HUD Bar (Rack Selector + Live Path Summary) */}

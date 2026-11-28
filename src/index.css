@@ -240,11 +240,14 @@
 .room-canvas { touch-action: none; cursor: grab; }
 .room-canvas:active { cursor: grabbing; }
 .room-camera, .room-cables, .room-diagnostics, .room-toast { position: absolute; right: var(--ops-right); z-index: 10; }
-.room-camera { top: var(--ops-gutter); display: flex; align-items: center; gap: 2px; padding: 4px; }
+.room-camera { top: var(--ops-gutter); display: flex; align-items: center; gap: 4px; padding: 4px; }
+.room-camera-tools { display: flex; align-items: center; gap: 2px; }
 .room-camera-select { display: flex; align-items: center; gap: 8px; padding-left: 9px; color: var(--ops-accent); }
 .room-camera-select svg { width: 16px; height: 16px; flex: none; }
 .room-camera-select select { width: 132px; min-height: 44px; padding-right: 4px; border: 0; border-radius: 4px; color: var(--ops-text); font-size: 12px; font-weight: 650; color-scheme: dark; cursor: pointer; }
 .room-camera-select option { background: var(--ops-surface); }
+.room-equipment-select { border-inline-start: 1px solid var(--ops-line); }
+.room-equipment-select select { width: clamp(132px, calc(100vw - 630px), 220px); text-overflow: ellipsis; }
 .room-camera .room-port-shortcut { color: var(--ops-accent); border-color: var(--ops-line); }
 .room-camera:has(.room-port-shortcut) .room-camera-select select { width: clamp(96px, calc(100vw - 215px), 132px); }
 .room-cables { top: calc(var(--ops-gutter) + 60px); max-width: calc(100% - 355px - var(--ops-right)); }
@@ -263,7 +266,11 @@
 .game-stage:has(.game-notification > span) .room-toast { visibility: hidden; }
 
 @media (max-width: 760px) {
-  .room-camera { top: auto; bottom: calc(var(--ops-bottom) + 52px + var(--room-control-lift, 0px)); }
+  .room-camera { top: auto; bottom: calc(var(--ops-bottom) + 52px + var(--room-control-lift, 0px)); flex-direction: column; align-items: stretch; }
+  .room-equipment-select { order: -1; border-inline-start: 0; border-bottom: 1px solid var(--ops-line); }
+  .room-equipment-select select { width: 100%; min-width: 0; }
+  .room-camera:has(.room-equipment-select) { width: min(262px, calc(100% - var(--ops-left) - var(--ops-right))); }
+  .room-camera:has(.room-equipment-select) ~ :is(.room-cables, .room-diagnostics, .room-toast) { --room-control-lift: 49px; }
   .room-cables, .room-diagnostics { top: auto; max-width: calc(100% - var(--ops-left) - var(--ops-right)); }
   .room-cables { bottom: calc(var(--ops-bottom) + 111px + var(--room-control-lift, 0px)); }
   .room-cables button { min-height: 44px; }
